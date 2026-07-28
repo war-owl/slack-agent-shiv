@@ -1,0 +1,28 @@
+{
+  "name": "open-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A self-hosted AI coworker that lives in your Slack workspace",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:contract": "vitest run --config vitest.contract.config.ts"
+  },
+  "dependencies": {
+    "@openai/codex": "0.145.0",
+    "@openai/codex-sdk": "0.145.0",
+    "@slack/bolt": "^5.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
+  }
+}

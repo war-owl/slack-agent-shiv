@@ -1,0 +1,44 @@
+import { RECORDED_CODEX_VERSION, type Config } from "./config.ts";
+import type { Logger } from "./coworker.ts";
+import type { Engine } from "./ports/engine.ts";
+import type { McpInventoryProber } from "./ports/mcp.ts";
+
+/**
+ * What the instance checks before it accepts its first mention.
+ *
+ * Everything it finds goes to the log, because the log is what a self-hoster reads
+ * at startup. Conditions that must not be survivable throw — ticket 08 adds the
+ * first of those, a connector whose tool inventory no longer matches its pin.
+ *
+ * v1 ships **no version pin**: the instance runs against whatever Codex is
+ * installed, records the version, and warns when it has drifted from the version
+ * this project was tested against. That report is not optional — Codex ships
+ * multiple alphas a day and has already removed flags a wrapper would plausibly
+ * depend on, so "it broke overnight and nobody can see why" is the failure mode this
+ * exists to make visible.
+ */
+export async function runPreflight(deps: {
+  config: Config;
+  engine: Engine;
+  inventoryProber: McpInventoryProber;
+  log: Logger;
+}): Promise<void> {
+  const engineVersion = await deps.engine.version();
+  deps.log.info(`Codex version ${engineVersion} (recorded: ${RECORDED_CODEX_VERSION})`);
+  if (engineVersion !== RECORDED_CODEX_VERSION) {
+    deps.log.warn(
+      `The installed Codex is ${engineVersion}, but this project was built and tested ` +
+        `against ${RECORDED_CODEX_VERSION}. v1 pins no version, so the instance will run ` +
+        "anyway — but if it behaves strangely, this is the first thing to suspect. " +
+        "Run `pnpm test:contract` to check the engine still behaves as expected.",
+    );
+  }
+
+  for (const server of deps.config.mcpServers) {
+    const inventory = await deps.inventoryProber.probe(server);
+    deps.log.info(
+      `Connector ${server.name} advertises ${inventory.tools.length} tools: ` +
+        inventory.tools.join(", "),
+    );
+  }
+}
