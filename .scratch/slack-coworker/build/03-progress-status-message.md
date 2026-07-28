@@ -100,10 +100,16 @@ How it landed:
   Progress is revised and gets overwritten, a Write never is, and the two must not share a
   message. No implementation detail went in with it.
 
-**Not verified:** a human watching a real Slack thread for ten minutes. The cadence, the
-edit-in-place, and the settle are verified against a fake Slack driven by a fake clock,
-which is the part that could have been wrong; that `chat.update` and `setStatus` behave as
-documented is taken from the research rather than measured here.
+**Verified by hand in a real workspace 2026-07-29.** The status message behaves as written
+against real Slack, so `chat.update` and `assistant.threads.setStatus` are no longer taken
+on the research's word — which was the last thing here resting on documentation rather than
+observation. The cadence, the edit-in-place and the settle were already verified against a
+fake Slack driven by a fake clock; that is the part that could have been wrong logically,
+and this is the part that could have been wrong about Slack.
+
+**Still unexercised:** the backoff path, because it needs Slack to actually return a `429`.
+It is covered at the top seam with a refusal injected, which is as close as a test gets
+without provoking a real rate limit.
 
 ### Left for later tickets, deliberately
 
