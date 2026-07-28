@@ -139,6 +139,40 @@ describe("the real engine", () => {
     expect(outputs.join("\n")).toMatch(/rollout-[\dT-]+-[0-9a-f-]{36}\.jsonl/);
   });
 
+  /**
+   * The status message is the engine's own todo list, so two facts about `exec` are
+   * load-bearing and neither can be honestly asserted against a fake: that a plan is
+   * emitted at all, and that it is **revised** mid-Turn rather than reported once at
+   * the end. Without the second, "which step it is on" has nothing to show.
+   */
+  it("emits a todo list, and revises it as it works", async () => {
+    const session = engine.startSession({ workingDirectory: workspace });
+
+    const plans: EngineEvent[] = [];
+    const commands: EngineEvent[] = [];
+    for await (const event of session.run(
+      "Use your plan tool to record these three steps before starting, then carry them " +
+        "out, marking each one complete as you finish it: (1) run `echo one`, " +
+        "(2) run `echo two`, (3) reply with just DONE.",
+    )) {
+      if (event.type === "plan") plans.push(event);
+      if (event.type === "command") commands.push(event);
+    }
+
+    const steps = plans.flatMap((event) => (event.type === "plan" ? [event.steps] : []));
+    expect(steps.length).toBeGreaterThan(1);
+    expect(steps[0]!.length).toBeGreaterThan(1);
+    const done = (index: number): number => steps[index]!.filter((step) => step.completed).length;
+    expect(done(steps.length - 1)).toBeGreaterThan(done(0));
+
+    // And activity is reported when a command *starts*. A long command is silent
+    // until it completes, so without this the status could only ever say what the
+    // coworker has already finished.
+    expect(
+      commands.some((event) => event.type === "command" && event.status === "in-progress"),
+    ).toBe(true);
+  });
+
   it("translates a command execution, including its output and exit code", async () => {
     const session = engine.startSession({ workingDirectory: workspace });
 

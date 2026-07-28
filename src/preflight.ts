@@ -1,6 +1,6 @@
 import { RECORDED_CODEX_VERSION, type Config } from "./config.ts";
-import type { Logger } from "./coworker.ts";
 import type { Engine } from "./ports/engine.ts";
+import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
 
 /**

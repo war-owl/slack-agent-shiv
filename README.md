@@ -4,14 +4,16 @@ A self-hosted AI coworker that lives in a Slack workspace you control, running
 against tokens you issue. You @-mention it in a thread with a real task, close your
 laptop, and come back to the work done.
 
-So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md))
-plus one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)):
-a mention goes in, an answer comes back into the same thread, and a follow-up days
-later resumes the same conversation without you restating anything. Each thread gets
-its own session and is never handed another thread's — though it is not yet *prevented*
-from going and reading one, which is measured and written down in
-[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no progress reporting yet,
-no Vault, and no connectors.
+So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md)),
+one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)),
+and a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)):
+a mention goes in, one message keeps you posted on the plan and the step it is on, and
+an answer comes back into the same thread — where a follow-up days later resumes the
+same conversation without you restating anything. Each thread gets its own session and
+is never handed another thread's — though it is not yet *prevented* from going and
+reading one, which is measured and written down in
+[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no Vault and no connectors,
+and nothing yet bounds how long a Job may run.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in

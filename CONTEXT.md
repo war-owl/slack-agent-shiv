@@ -64,6 +64,14 @@ Two things separate a Skill from a Note. A Note is *belief*; a Skill is *instruc
 
 A Skill names an environment variable where a credential is needed; it never contains one.
 
+## Progress
+
+What a Job says about itself while it is still running: the coworker's own plan, and which step of it the work has reached. One thing per Job, **revised** rather than added to — the person who delegated the work walked away, and what they want on returning is one glance, not a transcript of the working.
+
+The counterpart to a [Write](#write), and deliberately its opposite in every respect. Progress is provisional and gets overwritten; a Write is final and never does. Confusing the two loses the audit record, which is why they are separate words.
+
 ## Write
 
 An action the coworker takes against something outside itself: opening a pull request, updating a ticket, posting a comment. Distinguished from reading because the coworker acts unattended, so every Write is appended to its Thread as a permanent record.
+
+Never revised once recorded, and never carried by [Progress](#progress).

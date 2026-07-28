@@ -1,4 +1,5 @@
-import type { Coworker, Logger, Mention, StartedJob } from "../coworker.ts";
+import type { Coworker, Mention, StartedJob } from "../coworker.ts";
+import type { Logger } from "../ports/log.ts";
 
 /**
  * The Slack gateway's own work: turning an `app_mention` into a Mention, and

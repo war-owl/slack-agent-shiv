@@ -1,7 +1,13 @@
 import { App } from "@slack/bolt";
 import type { Config } from "../config.ts";
-import type { Logger } from "../coworker.ts";
-import type { PostMessage, PostedMessage, SlackClient } from "../ports/slack.ts";
+import type { Logger } from "../ports/log.ts";
+import type {
+  PostMessage,
+  PostedMessage,
+  SetStatus,
+  SlackClient,
+  UpdateMessage,
+} from "../ports/slack.ts";
 import type { MentionGateway } from "./mentions.ts";
 
 /**
@@ -41,6 +47,28 @@ export function slackClientFor(app: App): SlackClient {
         throw new Error("Slack accepted the message but returned no ts");
       }
       return { ts: result.ts };
+    },
+
+    async updateMessage(message: UpdateMessage): Promise<void> {
+      await app.client.chat.update({
+        channel: message.thread.channel,
+        ts: message.ts,
+        // `text` only, never `blocks`. Slack's own footgun: passing `text` to
+        // `chat.update` on a message that has blocks *removes* the blocks, so a status
+        // message built from text stays built from text.
+        text: message.text,
+      });
+    },
+
+    async setStatus(status: SetStatus): Promise<void> {
+      // `assistant.threads.setStatus` has accepted `chat:write` since 2026-03-05, which
+      // is what lets a channel-mention bot show a native loading state without the
+      // Assistant split view or the `assistant:write` scope.
+      await app.client.assistant.threads.setStatus({
+        channel_id: status.thread.channel,
+        thread_ts: status.thread.ts,
+        status: status.status,
+      });
     },
   };
 }

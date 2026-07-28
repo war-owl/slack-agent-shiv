@@ -1,8 +1,9 @@
 import { loadConfig } from "./config.ts";
-import { createCoworker, type Logger } from "./coworker.ts";
+import { createCoworker } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
 import { unimplementedInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
+import type { Logger } from "./ports/log.ts";
 import { openSessionStore, sessionStoreFile } from "./sessions/store.ts";
 import { createSlackApp, slackClientFor, subscribeToMentions } from "./slack/gateway.ts";
 import { createMentionGateway } from "./slack/mentions.ts";

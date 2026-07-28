@@ -100,7 +100,9 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
   const sessions = await openSessionStore({ filePath: sessionStoreFile(stateDir) });
 
   const clock = new FakeClock();
-  const slack = new FakeSlack();
+  // Stamped by the same clock the coworker uses, so "refreshed inside two minutes" is
+  // measurable rather than a guess about wall-clock timing.
+  const slack = new FakeSlack(clock);
   const engine = new FakeEngine();
   const inventoryProber = new FakeInventoryProber();
   /** What a self-hoster would see at startup and in the instance's output. */

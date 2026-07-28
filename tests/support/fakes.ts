@@ -1,4 +1,5 @@
-import type { Clock } from "../../src/ports/clock.ts";
+import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
+import type { Clock, Stoppable } from "../../src/ports/clock.ts";
 import type {
   Engine,
   EngineEvent,
@@ -6,8 +7,14 @@ import type {
   SessionOptions,
 } from "../../src/ports/engine.ts";
 import type { McpInventory, McpInventoryProber, McpServerConfig } from "../../src/ports/mcp.ts";
-import type { PostMessage, PostedMessage, SlackClient } from "../../src/ports/slack.ts";
-import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
+import type {
+  PostMessage,
+  PostedMessage,
+  SetStatus,
+  SlackClient,
+  UpdateMessage,
+} from "../../src/ports/slack.ts";
+import type { Thread } from "../../src/thread.ts";
 
 export interface Deferred<T> {
   promise: Promise<T>;
@@ -22,13 +29,42 @@ export function deferred<T = void>(): Deferred<T> {
   return { promise, resolve };
 }
 
+/** One text Slack was asked to show, whether it arrived by posting or by editing. */
+export interface SlackWrite {
+  kind: "post" | "edit";
+  ts: string;
+  thread: Thread;
+  text: string;
+  /** When it landed, by the injected clock — so a test can assert on cadence. */
+  at: number;
+}
+
+export interface StatusCall {
+  thread: Thread;
+  status: string;
+  at: number;
+}
+
 export class FakeSlack implements SlackClient {
-  /** Every message posted, in order. */
-  readonly posts: PostMessage[] = [];
+  /** Every text Slack was asked to show, posts and edits together, in order. */
+  readonly writes: SlackWrite[] = [];
+  /** Every edit *attempted*, including the ones that failed, stamped by the clock. */
+  readonly editAttempts: (UpdateMessage & { at: number })[] = [];
+  /** Every call to Slack's own status indicator. An empty status clears it. */
+  readonly statuses: StatusCall[] = [];
   /** Set to make the next `postMessage` fail, as a Slack outage would. */
   failNextPost: Error | undefined;
+  /** Set to make every edit fail, as a rate limit or a deleted message would. */
+  failEdits: Error | undefined;
+  /** Set to make the indicator fail, as an app predating the scope change would. */
+  failStatuses: Error | undefined;
 
   private nextTs = 1;
+  private readonly clock: Clock;
+
+  constructor(clock: Clock) {
+    this.clock = clock;
+  }
 
   async postMessage(message: PostMessage): Promise<PostedMessage> {
     const failure = this.failNextPost;
@@ -36,13 +72,65 @@ export class FakeSlack implements SlackClient {
       this.failNextPost = undefined;
       throw failure;
     }
-    this.posts.push(message);
-    return { ts: `post-${this.nextTs++}` };
+    const ts = `post-${this.nextTs++}`;
+    this.record("post", ts, message.thread, message.text);
+    return { ts };
   }
 
-  /** The messages posted into one Thread, oldest first. */
+  async updateMessage(message: UpdateMessage): Promise<void> {
+    this.editAttempts.push({ ...message, at: this.clock.now() });
+    if (this.failEdits) throw this.failEdits;
+    if (!this.writes.some((write) => write.ts === message.ts)) {
+      throw new Error(`Asked to edit ${message.ts}, which this Slack never posted`);
+    }
+    this.record("edit", message.ts, message.thread, message.text);
+  }
+
+  async setStatus(status: SetStatus): Promise<void> {
+    if (this.failStatuses) throw this.failStatuses;
+    this.statuses.push({ thread: status.thread, status: status.status, at: this.clock.now() });
+  }
+
+  /** Every message posted, in order, as it was posted. */
+  get posts(): PostMessage[] {
+    return this.writes
+      .filter((write) => write.kind === "post")
+      .map((write) => ({ thread: write.thread, text: write.text }));
+  }
+
+  /** The messages *posted* into one Thread, oldest first — not counting later edits. */
   textsIn(threadTs: string): string[] {
     return this.posts.filter((post) => post.thread.ts === threadTs).map((post) => post.text);
+  }
+
+  /** The `ts` Slack handed back for the nth posted message. */
+  tsOf(post: number): string {
+    const ts = this.writes.filter((write) => write.kind === "post")[post]?.ts;
+    if (ts === undefined) throw new Error(`This Slack never posted a message ${post}`);
+    return ts;
+  }
+
+  /** Every version one message has had, oldest first — the post, then each edit. */
+  versionsOf(ts: string): string[] {
+    return this.writes.filter((write) => write.ts === ts).map((write) => write.text);
+  }
+
+  /** What one message says now, after every edit that has landed. */
+  currentTextOf(ts: string): string {
+    return this.versionsOf(ts).at(-1) ?? "";
+  }
+
+  /** When each of those versions landed, so a test can assert on refresh cadence. */
+  timesOf(ts: string): number[] {
+    return this.writes.filter((write) => write.ts === ts).map((write) => write.at);
+  }
+
+  get edits(): SlackWrite[] {
+    return this.writes.filter((write) => write.kind === "edit");
+  }
+
+  private record(kind: SlackWrite["kind"], ts: string, thread: Thread, text: string): void {
+    this.writes.push({ kind, ts, thread, text, at: this.clock.now() });
   }
 }
 
@@ -136,8 +224,16 @@ export class FakeEngine implements Engine {
   }
 }
 
+interface FakeRepeat {
+  intervalMs: number;
+  tick: () => void | Promise<void>;
+  dueAt: number;
+  stopped: boolean;
+}
+
 export class FakeClock implements Clock {
   private current: number;
+  private readonly repeats: FakeRepeat[] = [];
 
   constructor(startingAt = 1_700_000_000_000) {
     this.current = startingAt;
@@ -145,6 +241,39 @@ export class FakeClock implements Clock {
 
   now(): number {
     return this.current;
+  }
+
+  every(intervalMs: number, tick: () => void | Promise<void>): Stoppable {
+    const repeat: FakeRepeat = {
+      intervalMs,
+      tick,
+      dueAt: this.current + intervalMs,
+      stopped: false,
+    };
+    this.repeats.push(repeat);
+    return {
+      stop: () => {
+        repeat.stopped = true;
+      },
+    };
+  }
+
+  /**
+   * Move time forward, running everything that comes due on the way — and awaiting
+   * it, so that "ten silent minutes passed" is a thing a test can assert after.
+   */
+  async advance(ms: number): Promise<void> {
+    const until = this.current + ms;
+    for (;;) {
+      const due = this.repeats
+        .filter((repeat) => !repeat.stopped && repeat.dueAt <= until)
+        .sort((left, right) => left.dueAt - right.dueAt)[0];
+      if (due === undefined) break;
+      this.current = due.dueAt;
+      due.dueAt += due.intervalMs;
+      await due.tick();
+    }
+    this.current = until;
   }
 }
 

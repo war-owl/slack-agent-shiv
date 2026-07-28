@@ -2,10 +2,12 @@ import type { Config } from "./config.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
 import type { Clock } from "./ports/clock.ts";
 import type { Engine, EngineSession, SessionOptions } from "./ports/engine.ts";
+import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
 import type { SessionStore } from "./ports/sessions.ts";
 import type { SlackClient } from "./ports/slack.ts";
 import { runPreflight } from "./preflight.ts";
+import { startJobStatus, type JobOutcome, type JobStatus } from "./reporter/status.ts";
 import type { Thread } from "./thread.ts";
 import { prepareWorkspace } from "./workspace.ts";
 
@@ -23,11 +25,6 @@ export interface StartedJob {
   jobId: string;
   /** Resolves when the Job has reported back into the Thread. */
   completed: Promise<void>;
-}
-
-export interface Logger {
-  info(message: string): void;
-  warn(message: string): void;
 }
 
 export interface CoworkerDeps {
@@ -51,8 +48,6 @@ export interface Coworker {
   handleMention(mention: Mention): Promise<StartedJob>;
 }
 
-const ACKNOWLEDGEMENT = "On it — I'll report back in this thread when I'm done.";
-
 export function createCoworker(deps: CoworkerDeps): Coworker {
   return {
     preflight: () => runPreflight(deps),
@@ -61,16 +56,25 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
       // Acknowledged before any work starts. Bolt has already ack'd the socket
       // event, but the human needs to see their request land in the Thread — that
       // is what makes closing the laptop reasonable.
-      await deps.slack.postMessage({ thread: mention.thread, text: ACKNOWLEDGEMENT });
+      //
+      // The acknowledgement *is* the status message. One message that starts as "on
+      // it" and is edited in place from then on is one fewer thing in the Thread than
+      // an acknowledgement followed by a separate progress message.
+      const status = await startJobStatus({
+        slack: deps.slack,
+        clock: deps.clock,
+        log: deps.log,
+        thread: mention.thread,
+      });
 
-      return { jobId: mention.eventId, completed: runJob(deps, mention) };
+      return { jobId: mention.eventId, completed: runJob(deps, mention, status) };
     },
   };
 }
 
-async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
+async function runJob(deps: CoworkerDeps, mention: Mention, status: JobStatus): Promise<void> {
   const startedAt = deps.clock.now();
-  let text: string;
+  let report: JobReport;
 
   try {
     const workingDirectory = await prepareWorkspace(deps.config, mention.thread, deps.log);
@@ -82,6 +86,11 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
     let answer = "";
     let failure: string | undefined;
     for await (const event of session.run(buildJobPrompt(mention))) {
+      // Everything the engine does reaches the status message, which shows the plan
+      // and the step it is on. Nothing is announced as its own message: individual
+      // tool calls belong in the one message a glance can read.
+      status.observe(event);
+
       switch (event.type) {
         case "session-started":
           // Recorded now rather than at the end of the Job: this is the first moment
@@ -98,13 +107,14 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
           failure = event.message;
           break;
         default:
-          // Everything else is progress and audit, which tickets 03 and 04 own.
+          // Everything else the status message has already taken, apart from the
+          // permanent record of every Write, which ticket 04 owns.
           break;
       }
     }
-    text = finalReport(answer, failure);
+    report = finalReport(answer, failure);
   } catch (error) {
-    text = stoppedShort(error instanceof Error ? error.message : String(error));
+    report = stoppedShort(error instanceof Error ? error.message : String(error));
   }
 
   deps.log.info(
@@ -112,7 +122,10 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
       `(thread ${mention.thread.ts})`,
   );
 
-  await deps.slack.postMessage({ thread: mention.thread, text });
+  // Settled before the answer is posted, so the Thread reads in the order it happened
+  // and the status has stopped moving by the time anyone reads the result.
+  await status.settle(report.outcome);
+  await deps.slack.postMessage({ thread: mention.thread, text: report.text });
 }
 
 /**
@@ -138,26 +151,46 @@ async function openSession(
   return deps.engine.resumeSession(recorded, options);
 }
 
-function finalReport(answer: string, failure: string | undefined): string {
+/**
+ * How the Job ended, said two ways: the message that goes into the Thread, and the
+ * state the status message settles into.
+ *
+ * They are one value because they are one judgement. Deciding "did this finish?" twice
+ * — once to write the prose and once to pick the icon — is how a Thread ends up with
+ * an apology under a green tick.
+ */
+interface JobReport {
+  text: string;
+  outcome: JobOutcome;
+}
+
+function finalReport(answer: string, failure: string | undefined): JobReport {
   if (answer.trim() === "") {
     return failure === undefined
-      ? "I finished without producing an answer. That is not a result — ask me again, " +
-          "and if it keeps happening the instance logs will say why."
+      ? {
+          text:
+            "I finished without producing an answer. That is not a result — ask me " +
+            "again, and if it keeps happening the instance logs will say why.",
+          outcome: "stopped",
+        }
       : stoppedShort(failure);
   }
   // An answer that arrived before a failure is still the answer. Losing it and
   // reporting only the error would throw away work the human can use.
-  return failure === undefined ? answer : `${answer}\n\n---\n${stoppedShort(failure)}`;
+  if (failure === undefined) return { text: answer, outcome: "finished" };
+  return { text: `${answer}\n\n---\n${stoppedShort(failure).text}`, outcome: "stopped" };
 }
 
 /**
  * An honest failure, not a silent one. Ticket 05 expands this into what completed,
  * what did not, and which bound stopped it; the skeleton at least never swallows.
  */
-function stoppedShort(reason: string): string {
-  return (
-    `I stopped before finishing this: ${reason}\n\n` +
-    "Anything I had already done out in the world has not been undone, so it is worth " +
-    "checking before you ask me again."
-  );
+function stoppedShort(reason: string): JobReport {
+  return {
+    text:
+      `I stopped before finishing this: ${reason}\n\n` +
+      "Anything I had already done out in the world has not been undone, so it is " +
+      "worth checking before you ask me again.",
+    outcome: "stopped",
+  };
 }

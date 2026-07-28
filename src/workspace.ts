@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { OPERATING_MANUAL_MAX_BYTES, type Config } from "./config.ts";
-import type { Logger } from "./coworker.ts";
+import type { Logger } from "./ports/log.ts";
 import type { Thread } from "./thread.ts";
 
 /**

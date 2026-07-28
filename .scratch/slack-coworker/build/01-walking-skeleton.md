@@ -61,6 +61,6 @@ knowing about before build/03:
   startup so that criterion is real rather than promised, and the shipped prober throws
   rather than returning an empty inventory.
 
-**Not verified:** a human @-mentioning the bot in a real Slack thread end to end. That
-needs someone posting in Slack — everything up to and including the Socket Mode
-connection and the engine round-trip is verified.
+**Verified end to end 2026-07-28**, on build/02: a human @-mentioned the bot in a real
+Slack thread in a real workspace and got its answer back in that thread. Every criterion
+above is now confirmed against Slack rather than against a fake.

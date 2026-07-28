@@ -19,6 +19,36 @@ export interface PostedMessage {
   ts: string;
 }
 
+export interface UpdateMessage {
+  thread: Thread;
+  /**
+   * The message to rewrite. Only ever the Job's status message: a Write record is
+   * appended and never edited, because the Thread is the accountability trail.
+   */
+  ts: string;
+  text: string;
+}
+
+export interface SetStatus {
+  thread: Thread;
+  /** Slack's own "is thinking…" phrasing. An empty string clears the indicator. */
+  status: string;
+}
+
 export interface SlackClient {
   postMessage(message: PostMessage): Promise<PostedMessage>;
+  /**
+   * Rewrite a message in place. Preferred over posting for progress: `chat.update` is
+   * Tier 3 (50+/minute) where `chat.postMessage` is about one per second per channel,
+   * and one message that changes beats a wall of narration to scroll past.
+   */
+  updateMessage(message: UpdateMessage): Promise<void>;
+  /**
+   * Slack's native loading indicator on the Thread.
+   *
+   * It is removed two minutes after the last call, which is the clock every long Job
+   * has to beat: the indicator vanishing is what makes a quiet ten-minute command
+   * look like a crash.
+   */
+  setStatus(status: SetStatus): Promise<void>;
 }
