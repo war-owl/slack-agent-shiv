@@ -74,4 +74,6 @@ The counterpart to a [Write](#write), and deliberately its opposite in every res
 
 An action the coworker takes against something outside itself: opening a pull request, updating a ticket, posting a comment. Distinguished from reading because the coworker acts unattended, so every Write is appended to its Thread as a permanent record.
 
+**The Job's workspace is part of "itself".** A scratch script the coworker writes to answer a question changed nothing anyone else owns, and reporting it would be narration; a Note in the [Vault](#vault) is the human's, and is a Write. The line is what the coworker was given versus what it went out and touched.
+
 Never revised once recorded, and never carried by [Progress](#progress).

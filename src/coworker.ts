@@ -1,4 +1,5 @@
 import type { Config } from "./config.ts";
+import { reasonFor } from "./failure.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
 import type { Clock } from "./ports/clock.ts";
 import type { Engine, EngineSession, SessionOptions } from "./ports/engine.ts";
@@ -7,9 +8,11 @@ import type { McpInventoryProber } from "./ports/mcp.ts";
 import type { SessionStore } from "./ports/sessions.ts";
 import type { SlackClient } from "./ports/slack.ts";
 import { runPreflight } from "./preflight.ts";
+import { startAuditTrail, type AuditTrail } from "./reporter/audit.ts";
 import { startJobStatus, type JobOutcome, type JobStatus } from "./reporter/status.ts";
 import type { Thread } from "./thread.ts";
 import { prepareWorkspace } from "./workspace.ts";
+import { writeScope } from "./writes/classify.ts";
 
 /** A human addressing the coworker with a task, in the wrapper's own terms. */
 export interface Mention {
@@ -75,9 +78,24 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
 async function runJob(deps: CoworkerDeps, mention: Mention, status: JobStatus): Promise<void> {
   const startedAt = deps.clock.now();
   let report: JobReport;
+  /**
+   * Undefined only until the workspace exists, because what counts as a Write depends
+   * on where this Job's own desk is. Nothing has been written before that point.
+   */
+  let audit: AuditTrail | undefined;
 
   try {
     const workingDirectory = await prepareWorkspace(deps.config, mention.thread, deps.log);
+    audit = startAuditTrail({
+      slack: deps.slack,
+      log: deps.log,
+      thread: mention.thread,
+      scope: await writeScope({
+        workspaceDir: workingDirectory,
+        vaultDir: deps.config.vaultDir,
+        servers: deps.config.mcpServers,
+      }),
+    });
     const session = await openSession(deps, mention.thread, {
       workingDirectory,
       writableDirectories: [deps.config.vaultDir],
@@ -90,6 +108,10 @@ async function runJob(deps: CoworkerDeps, mention: Mention, status: JobStatus): 
       // and the step it is on. Nothing is announced as its own message: individual
       // tool calls belong in the one message a glance can read.
       status.observe(event);
+      // And anything that was a Write — an action against something outside itself —
+      // is appended to the Thread permanently. The two channels see the same events
+      // and are opposite in what they do with them.
+      audit.observe(event);
 
       switch (event.type) {
         case "session-started":
@@ -107,20 +129,24 @@ async function runJob(deps: CoworkerDeps, mention: Mention, status: JobStatus): 
           failure = event.message;
           break;
         default:
-          // Everything else the status message has already taken, apart from the
-          // permanent record of every Write, which ticket 04 owns.
+          // Everything else both output channels have already taken.
           break;
       }
     }
     report = finalReport(answer, failure);
   } catch (error) {
-    report = stoppedShort(error instanceof Error ? error.message : String(error));
+    report = stoppedShort(reasonFor(error));
   }
 
   deps.log.info(
     `Job ${mention.eventId} finished in ${deps.clock.now() - startedAt}ms ` +
       `(thread ${mention.thread.ts})`,
   );
+
+  // Every Write record lands before the answer: the Thread has to read in the order
+  // things happened, and the answer is the last word on the Job.
+  await audit?.drain();
+  report = withMissingRecords(report, audit?.unrecorded ?? 0);
 
   // Settled before the answer is posted, so the Thread reads in the order it happened
   // and the status has stopped moving by the time anyone reads the result.
@@ -179,6 +205,27 @@ function finalReport(answer: string, failure: string | undefined): JobReport {
   // reporting only the error would throw away work the human can use.
   if (failure === undefined) return { text: answer, outcome: "finished" };
   return { text: `${answer}\n\n---\n${stoppedShort(failure).text}`, outcome: "stopped" };
+}
+
+/**
+ * A Job that could not record everything it did says so where the human is reading.
+ *
+ * The Job itself still succeeded — a Slack refusal does not undo the work, and the
+ * outcome is left alone. But the Thread is the accountability record, and a record
+ * with a silent hole in it is worse than one that admits to the hole.
+ */
+function withMissingRecords(report: JobReport, missing: number): JobReport {
+  if (missing === 0) return report;
+  const what =
+    missing === 1
+      ? "One action I took could not be recorded"
+      : `${missing} of the actions I took could not be recorded`;
+  return {
+    outcome: report.outcome,
+    text:
+      `${report.text}\n\n---\n${what} in this thread — Slack refused the message. ` +
+      "What I did still happened; the instance's own log has the records.",
+  };
 }
 
 /**

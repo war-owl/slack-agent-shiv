@@ -165,6 +165,7 @@ describe("startup", () => {
           name: "github",
           url: "https://api.githubcopilot.com/mcp/",
           bearerTokenEnvVar: "GH_PAT",
+          writeTools: ["create_pull_request"],
         },
       ],
     });
@@ -176,6 +177,31 @@ describe("startup", () => {
 
     expect(h.logs.join("\n")).toContain("Connector github advertises 2 tools");
     expect(h.logs.join("\n")).toContain("search_issues, create_pull_request");
+    expect(h.warnings).toEqual([]);
+  });
+
+  it("warns when a connector names a writing tool it does not have", async () => {
+    const h = await coworkerHarness({
+      mcpServers: [
+        {
+          name: "github",
+          url: "https://api.githubcopilot.com/mcp/",
+          bearerTokenEnvVar: "GH_PAT",
+          writeTools: ["create_pull_request", "create_pull_requests"],
+        },
+      ],
+    });
+    h.inventoryProber.inventories.set("github", {
+      tools: ["search_issues", "create_pull_request"],
+    });
+
+    await h.coworker.preflight();
+
+    // The cost of the typo is silence: Writes through the tool that was meant would
+    // never reach the Thread, and nothing else would ever mention it.
+    const warning = h.warnings.join("\n");
+    expect(warning).toContain("create_pull_requests");
+    expect(warning).not.toContain("search_issues");
   });
 });
 

@@ -139,6 +139,11 @@ export type EngineScript = (context: {
   prompt: string;
   /** Which Session the Turn is running in, so a script can answer per-Thread. */
   sessionId: string;
+  /**
+   * The Job's workspace, as the real engine is given it — so a script can write to
+   * the coworker's own desk rather than only to somewhere outside it.
+   */
+  workingDirectory: string;
 }) => AsyncIterable<EngineEvent> | Iterable<EngineEvent> | Promise<Iterable<EngineEvent>>;
 
 /** One Turn the fake engine was asked to run. */
@@ -167,7 +172,7 @@ export class FakeEngine implements Engine {
 
   startSession(options: SessionOptions): EngineSession {
     this.startedSessions.push(options);
-    return this.session(`session-${this.nextSession++}`, false);
+    return this.session(`session-${this.nextSession++}`, false, options);
   }
 
   /**
@@ -177,10 +182,14 @@ export class FakeEngine implements Engine {
    */
   resumeSession(sessionId: string, options: SessionOptions): EngineSession {
     this.resumedSessions.push({ sessionId, options });
-    return this.session(sessionId, true);
+    return this.session(sessionId, true, options);
   }
 
-  private session(sessionId: string, resumed: boolean): EngineSession {
+  private session(
+    sessionId: string,
+    resumed: boolean,
+    options: SessionOptions,
+  ): EngineSession {
     const engine = this;
     // A real Session has no id until a Turn starts; a resumed one knows it up front.
     let id: string | null = resumed ? sessionId : null;
@@ -194,7 +203,11 @@ export class FakeEngine implements Engine {
         return (async function* () {
           yield { type: "session-started", sessionId } as const;
           yield { type: "turn-started" } as const;
-          for await (const event of await engine.script({ prompt, sessionId })) {
+          for await (const event of await engine.script({
+            prompt,
+            sessionId,
+            workingDirectory: options.workingDirectory,
+          })) {
             yield event;
           }
         })();

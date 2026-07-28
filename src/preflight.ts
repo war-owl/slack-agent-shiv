@@ -40,5 +40,17 @@ export async function runPreflight(deps: {
       `Connector ${server.name} advertises ${inventory.tools.length} tools: ` +
         inventory.tools.join(", "),
     );
+
+    // A tool named as a Write that the server does not have is a typo, and its cost is
+    // silence: every use of the tool that was *meant* would go unrecorded in the Thread.
+    // Cheap to catch here, since the inventory has just been fetched anyway.
+    const unknown = server.writeTools.filter((tool) => !inventory.tools.includes(tool));
+    if (unknown.length > 0) {
+      deps.log.warn(
+        `Connector ${server.name} is configured with writeTools it does not advertise: ` +
+          `${unknown.join(", ")}. Nothing uses those names, so check the spelling — a ` +
+          "tool that writes but is not listed leaves no record in the Thread when it does.",
+      );
+    }
   }
 }

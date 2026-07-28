@@ -53,6 +53,15 @@ export type EngineEvent =
       tool: string;
       status: ActivityStatus;
       error: string | undefined;
+      /**
+       * What the server sent back, as text.
+       *
+       * Carried because a Write's audit record has to name the thing that was written
+       * and link to it, and the identifier of a freshly-created ticket or pull request
+       * exists nowhere else — the arguments say what was asked for, and only the result
+       * says what came into being.
+       */
+      result: string | undefined;
     }
   | { type: "web-search"; query: string }
   | { type: "turn-completed"; usage: TokenUsage | undefined }

@@ -52,6 +52,15 @@ export const configSchema = z.object({
       name: z.string().min(1),
       url: z.string().url(),
       bearerTokenEnvVar: z.string().min(1),
+      /**
+       * The tools on this server that act on the world. See `McpServerConfig`.
+       *
+       * Required rather than defaulted to empty. An absent list means every Write
+       * through this connector leaves no trace, which is not a thing to fall into by
+       * omission — naming them (or naming none, deliberately) is part of configuring a
+       * connector, like pinning its inventory.
+       */
+      writeTools: z.array(z.string().min(1)),
     }),
   ),
 });

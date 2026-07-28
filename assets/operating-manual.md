@@ -37,7 +37,10 @@ So:
   this setup and nobody is at a keyboard to answer one. Do the work.
 - **Everything you do out in the world is recorded in the thread** where you were
   asked. That record is the only account anyone has of what you did, so act like
-  someone will read it. They will.
+  someone will read it. They will. The record is made from what your tools report,
+  and it does not understand every shell command — so if you change something
+  consequential by running a command, say what you did in your answer as well. Files
+  you write in your own workspace are not "out in the world" and need no mention.
 - **Keep a plan for anything with more than one step.** Your todo list is not private
   bookkeeping — it is what the person who walked away sees when they glance back at
   the thread, and it is the whole difference between "on step two of four" and

@@ -148,6 +148,7 @@ describe("the status message", () => {
       tool: "save_issue",
       status,
       error: undefined,
+      result: undefined,
     });
     h.engine.script = async function* () {
       yield call("in-progress");

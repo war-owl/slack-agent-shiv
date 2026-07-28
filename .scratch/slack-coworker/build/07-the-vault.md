@@ -14,6 +14,7 @@ There is no separate memory store. The Vault is the memory, and everything the c
 - [ ] Frontmatter on each Note records when it was last modified and which Thread and Job wrote it
 - [ ] A Note is the current belief about its topic: learning something contradictory rewrites the Note in place rather than appending to a log
 - [ ] A Note created or changed by the coworker echoes its diff into the Thread through the audit channel, so a poisoning attempt is visible where the human is already reading
+- [ ] **The diff is taken from the Vault's own contents before and after the Job, not from the engine's file-change events** — and anything that changed without a record gets one. [build/04](04-audit-writes.md#the-gap-shell-writes-the-wrapper-cannot-see) records Writes from the event stream, which misses a Note written with `cp`, `echo >` or `rm`; a snapshot able to produce a diff closes that at the filesystem level, and this ticket needs the snapshot regardless
 - [ ] A human's hand-edit to a Note is respected, and deleting a Note removes the belief completely — recovery needs no tooling
 
 ### The Root note

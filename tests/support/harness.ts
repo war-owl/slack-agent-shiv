@@ -4,7 +4,6 @@ import path from "node:path";
 import { onTestFinished } from "vitest";
 import type { Config } from "../../src/config.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
-import type { McpServerConfig } from "../../src/ports/mcp.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
 import { openSessionStore, sessionStoreFile } from "../../src/sessions/store.ts";
 import {
@@ -19,7 +18,7 @@ export const DEFAULT_THREAD_TS = "1700000000.000100";
 
 export interface HarnessOptions {
   operatingManual?: string;
-  mcpServers?: McpServerConfig[];
+  mcpServers?: Config["mcpServers"];
   /**
    * Reuse an existing temporary root instead of making a new one. This is how a
    * process restart is modelled: same directories on disk, everything in memory gone.

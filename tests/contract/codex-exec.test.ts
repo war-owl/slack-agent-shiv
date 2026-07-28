@@ -1,10 +1,13 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
 import { createCodexEngine } from "../../src/engine/codex.ts";
 import type { Engine, EngineEvent } from "../../src/ports/engine.ts";
+import { writeScope, writesIn, type Write } from "../../src/writes/classify.ts";
 
 /**
  * The contract seam.
@@ -171,6 +174,111 @@ describe("the real engine", () => {
     expect(
       commands.some((event) => event.type === "command" && event.status === "in-progress"),
     ).toBe(true);
+  });
+
+  /**
+   * The audit record of a file Write rests on three facts about `exec` that a fake
+   * asserts by construction and therefore cannot vouch for: that a patch outside the
+   * working directory is applied at all when the directory is passed as writable, that
+   * the path comes back in a form comparable against the workspace, and that a
+   * completed patch is reported **once**. The last one is the sharp one — a second
+   * completed event for the same patch would append a second permanent record of a
+   * Write that happened once, which is exactly the kind of thing an audit trail must
+   * not do.
+   *
+   * Asserted through the real classifier rather than on the events, because what has
+   * to hold is the conclusion it draws: one record, for the file outside the workspace.
+   */
+  it("reports a patch outside the workspace once, and its own scratch file not at all", async () => {
+    const vault = path.join(workspace, "..", `vault-${path.basename(workspace)}`);
+    await mkdir(vault, { recursive: true });
+    const session = engine.startSession({
+      workingDirectory: workspace,
+      writableDirectories: [vault],
+    });
+
+    const writes: Write[] = [];
+    const scope = await writeScope({ workspaceDir: workspace, vaultDir: vault, servers: [] });
+    const changes: EngineEvent[] = [];
+    for await (const event of session.run(
+      "Using your file-editing tool and not shell redirection, create exactly two files: " +
+        `\`${path.join(workspace, "scratch.md")}\` containing the word ONE, and ` +
+        `\`${path.join(vault, "note.md")}\` containing the word TWO. Then reply with just DONE.`,
+    )) {
+      if (event.type === "file-change") changes.push(event);
+      writes.push(...writesIn(event, scope));
+    }
+
+    expect(changes.length).toBeGreaterThan(0);
+    expect(await readFile(path.join(vault, "note.md"), "utf8")).toContain("TWO");
+    // One record: the file outside the workspace. The scratch file next to its own
+    // AGENTS.md is the coworker's desk, and reporting it would be narration.
+    expect(writes.map((write) => write.action)).toEqual(["Created a Note in the Vault"]);
+    expect(writes[0]?.subject).toBe("note.md");
+  });
+
+  /**
+   * A real command Write, end to end: a real `git push` into a real repository.
+   *
+   * The whole reason this is worth tokens is that the *shape* of what the engine
+   * reports decided the design. A shell call arrives as
+   * `/bin/zsh -lc "git add … && git commit … && git push …"` — the program is behind a
+   * quote rather than at the start of the string, and one item carries a whole script —
+   * and a table of patterns written against `git push …` on its own would match none of
+   * it. A fake cannot tell us that, because a fake says whatever the test says.
+   *
+   * The remote is a bare repository on disk, so nothing here needs a network or a
+   * credential.
+   */
+  it("recognises a Write in a command the way the engine really reports it", async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), "open-agent-push-"));
+    const remote = path.join(repo, "remote.git");
+    const checkout = path.join(repo, "checkout");
+    const git = (...args: string[]): Promise<unknown> => promisify(execFile)("git", args);
+    await git("init", "--bare", remote);
+    await git("init", checkout);
+    await git("-C", checkout, "config", "user.email", "coworker@example.com");
+    await git("-C", checkout, "config", "user.name", "Coworker");
+    // The self-hoster running this may well sign their commits; the agent cannot answer
+    // a passphrase prompt, and this test is not about signing.
+    await git("-C", checkout, "config", "commit.gpgsign", "false");
+    await writeFile(path.join(checkout, "AGENTS.md"), "Answer what you are asked.\n", "utf8");
+    await writeFile(path.join(checkout, "README.md"), "one\n", "utf8");
+    await git("-C", checkout, "add", ".");
+    await git("-C", checkout, "commit", "-m", "first");
+    await git("-C", checkout, "remote", "add", "origin", remote);
+    const before = await git("-C", remote, "rev-parse", "HEAD");
+
+    const session = engine.startSession({ workingDirectory: checkout });
+    const scope = await writeScope({
+      workspaceDir: checkout,
+      vaultDir: path.join(repo, "vault"),
+      servers: [],
+    });
+    const writes: Write[] = [];
+    for await (const event of session.run(
+      "Append the word two to README.md, commit it with git, and push it to origin on " +
+        "the current branch. Do not use gh. Then reply with just DONE.",
+    )) {
+      writes.push(...writesIn(event, scope));
+    }
+
+    // The push really happened — the bare repository moved on.
+    const after = await git("-C", remote, "rev-parse", "HEAD");
+    expect(after).not.toEqual(before);
+    // And it was recorded as what it was. There may be more than one: the coworker
+    // retries, and an attempt that did not obviously succeed is recorded too.
+    //
+    // Nothing is asserted about the outcome on purpose, and this test is why. The push
+    // demonstrably worked — the remote moved — yet it arrives inside a chained command
+    // that ends non-zero often enough that "the push succeeded" is not a claim the exit
+    // code supports. `Write.failure` says only what is known.
+    expect(writes.map((write) => write.action)).toContain("Pushed to a git remote");
+    // The commit and the edit are not Writes: one is inside the checkout it was given,
+    // and the other never left the workspace at all.
+    expect(writes.every((write) => write.action === "Pushed to a git remote")).toBe(true);
+
+    await rm(repo, { recursive: true, force: true });
   });
 
   it("translates a command execution, including its output and exit code", async () => {

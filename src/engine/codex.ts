@@ -187,6 +187,7 @@ function translateItem(item: ThreadItem, status: ActivityStatus): EngineEvent[] 
           tool: item.tool,
           status: statusOf(item.status),
           error: item.error?.message,
+          result: resultTextOf(item),
         },
       ];
     case "web_search":
@@ -196,6 +197,22 @@ function translateItem(item: ThreadItem, status: ActivityStatus): EngineEvent[] 
     default:
       return [];
   }
+}
+
+/**
+ * A tool result as one block of text, or nothing.
+ *
+ * Only the text blocks are read. An MCP result may also carry images and structured
+ * content, and neither is worth translating for the one thing the wrapper does with a
+ * result: find the identifier or URL of what the tool just created, so the Write's
+ * audit record can link to it.
+ */
+function resultTextOf(item: McpToolCallItem): string | undefined {
+  const text = (item.result?.content ?? [])
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n")
+    .trim();
+  return text === "" ? undefined : text;
 }
 
 /**

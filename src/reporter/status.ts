@@ -1,8 +1,10 @@
+import { reasonFor } from "../failure.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { EngineEvent, FileChange, PlanStep } from "../ports/engine.ts";
 import type { Logger } from "../ports/log.ts";
 import type { SlackClient } from "../ports/slack.ts";
 import type { Thread } from "../thread.ts";
+import { code, mrkdwn, oneLine } from "./mrkdwn.ts";
 
 /**
  * Progress: one message per Job, edited in place.
@@ -16,8 +18,8 @@ import type { Thread } from "../thread.ts";
  * Two things it deliberately does not do:
  *
  * - **It never posts twice.** Individual tool calls are folded into the one message
- *   rather than announced. The other output channel — a permanent record of every
- *   Write, which ticket 04 owns — has the opposite semantics on purpose.
+ *   rather than announced. The other output channel — `./audit.ts`, a permanent record
+ *   of every Write — has the opposite semantics on purpose.
  * - **It never fails a Job.** Progress is a courtesy and the answer is the work, so
  *   a Slack refusal here is warned about once and then endured.
  */
@@ -164,7 +166,7 @@ export async function startJobStatus(deps: StatusDeps): Promise<JobStatus> {
     if (complainedAbout.has(what)) return;
     complainedAbout.add(what);
     deps.log.warn(
-      `Could not ${what} in thread ${deps.thread.ts}: ${describe(error)}. The Job is ` +
+      `Could not ${what} in thread ${deps.thread.ts}: ${reasonFor(error)}. The Job is ` +
         "still running and will still post its answer; progress reporting may be stale.",
     );
   };
@@ -378,27 +380,6 @@ function elapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/**
- * Escape what Slack's mrkdwn parser would otherwise read as markup. Commands and
- * file paths routinely contain `<`, `>` and `&`, and a plan step is model output.
- */
-function mrkdwn(value: string): string {
-  return oneLine(value, 300)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-/** A command or path, as inline code. Backticks are replaced rather than escaped. */
-function code(value: string): string {
-  return `\`${mrkdwn(oneLine(value, 160).replace(/`/g, "'"))}\``;
-}
-
-function oneLine(value: string, max: number): string {
-  const collapsed = value.replace(/\s+/g, " ").trim();
-  return collapsed.length <= max ? collapsed : `${collapsed.slice(0, max - 1)}…`;
-}
-
 function lowerFirst(value: string): string {
   return value.charAt(0).toLowerCase() + value.slice(1);
 }
@@ -416,8 +397,4 @@ function samePlan(left: readonly PlanStep[], right: readonly PlanStep[]): boolea
         step.text === right[index]?.text && step.completed === right[index]?.completed,
     )
   );
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

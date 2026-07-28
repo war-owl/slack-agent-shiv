@@ -12,6 +12,17 @@ export interface McpServerConfig {
   url: string;
   /** The environment variable holding the bearer token. Never the token itself. */
   bearerTokenEnvVar: string;
+  /**
+   * Which of this server's tools act on the world rather than read it, so that every
+   * use of one is appended to the Thread as a permanent record.
+   *
+   * Configuration rather than code, like the rest of a connector (ADR-0005) — the
+   * wrapper is not in the tool path and has no way to tell a read from a write by
+   * looking. Naming them is the same act as pinning the inventory: a tool nobody
+   * listed here is a tool whose use leaves no trace, which is why the connector
+   * tickets own their own lists rather than inheriting a guess.
+   */
+  writeTools: readonly string[];
 }
 
 export interface McpInventory {

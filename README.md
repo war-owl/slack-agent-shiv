@@ -6,10 +6,12 @@ laptop, and come back to the work done.
 
 So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md)),
 one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)),
-and a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)):
-a mention goes in, one message keeps you posted on the plan and the step it is on, and
-an answer comes back into the same thread — where a follow-up days later resumes the
-same conversation without you restating anything. Each thread gets its own session and
+a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)),
+and an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)):
+a mention goes in, one message keeps you posted on the plan and the step it is on, every
+action it takes out in the world is appended to the thread permanently, and an answer
+comes back into the same thread — where a follow-up days later resumes the same
+conversation without you restating anything. Each thread gets its own session and
 is never handed another thread's — though it is not yet *prevented* from going and
 reading one, which is measured and written down in
 [ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no Vault and no connectors,
