@@ -31,6 +31,13 @@ export const configSchema = z.object({
   vaultDir: z.string().min(1),
   /** Where per-Thread Job workspaces are created. The sandbox's writable root. */
   workspaceRoot: z.string().min(1),
+  /**
+   * The wrapper's own durable state — which is only the Session mapping. Deliberately
+   * outside the Vault and outside every workspace: the Vault is the human's, and a
+   * workspace is writable by the agent, which must not be able to rewrite which
+   * Session another Thread resumes into.
+   */
+  stateDir: z.string().min(1),
   /** The shipped operating manual, copied into every Job's workspace as `AGENTS.md`. */
   operatingManualPath: z.string().min(1),
   engine: z.object({
@@ -54,6 +61,7 @@ export type Config = z.infer<typeof configSchema>;
 const defaults = {
   vaultDir: path.join(repoRoot, "vault"),
   workspaceRoot: path.join(repoRoot, ".workspaces"),
+  stateDir: path.join(repoRoot, ".state"),
   operatingManualPath: path.join(repoRoot, "assets", "operating-manual.md"),
   model: "gpt-5.6-sol",
   // `low` is the right default for cost and latency across the many shallow Jobs.
@@ -76,6 +84,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     vaultDir: env.VAULT_DIR ?? defaults.vaultDir,
     workspaceRoot: env.WORKSPACE_ROOT ?? defaults.workspaceRoot,
+    stateDir: env.STATE_DIR ?? defaults.stateDir,
     operatingManualPath: env.OPERATING_MANUAL_PATH ?? defaults.operatingManualPath,
     engine: {
       model: env.CODEX_MODEL ?? defaults.model,

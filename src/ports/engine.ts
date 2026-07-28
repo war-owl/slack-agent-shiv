@@ -81,4 +81,14 @@ export interface Engine {
   /** The installed engine version, reported at startup. */
   version(): Promise<string>;
   startSession(options: SessionOptions): EngineSession;
+  /**
+   * Pick a Session back up where it left off.
+   *
+   * `sessionId` is what a previous Session reported as its own `id`. The engine holds
+   * the conversation, so nothing about the Thread's history is passed back in — which
+   * is the whole reason the wrapper's only durable state is the identifier.
+   *
+   * Durability is turn-granular: a Session resumes from its last *completed* Turn.
+   */
+  resumeSession(sessionId: string, options: SessionOptions): EngineSession;
 }

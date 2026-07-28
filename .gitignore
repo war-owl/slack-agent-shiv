@@ -1,6 +1,11 @@
 node_modules/
 dist/
 /build/
+# Per-Thread Job workspaces, the wrapper's Session mapping, and the default Vault:
+# all instance state, none of it the project's.
+/.workspaces/
+/.state/
+/vault/
 .env
 .env.*
 !.env.example

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { OPERATING_MANUAL_MAX_BYTES, RECORDED_CODEX_VERSION } from "../src/config.ts";
@@ -217,6 +217,139 @@ describe("the operating manual", () => {
       "utf8",
     );
     expect(onDisk).toBe(oversized);
+  });
+});
+
+describe("one Session per Thread", () => {
+  it("resumes the Thread's Session on a second mention rather than starting over", async () => {
+    const h = await coworkerHarness();
+
+    await h.mention({ thread_ts: "1700000042.000100" });
+    await h.mention({ thread_ts: "1700000042.000100" });
+
+    expect(h.engine.startedSessions).toHaveLength(1);
+    expect(h.engine.resumedSessions.map((resumed) => resumed.sessionId)).toEqual([
+      h.engine.sessionFor(0),
+    ]);
+    // Both Turns ran in one Session, which is what makes the follow-up a follow-up.
+    expect(h.engine.sessionFor(1)).toBe(h.engine.sessionFor(0));
+  });
+
+  it("answers a follow-up from the Thread's own history, with nothing restated", async () => {
+    const h = await coworkerHarness();
+    // The engine holds the conversation, so a resumed Session is the only reason it
+    // could answer this. A script that can see its own Session models that honestly.
+    const saidEarlier = new Map<string, string>();
+    h.engine.script = ({ prompt, sessionId }) => {
+      if (prompt.includes("staging")) {
+        saidEarlier.set(sessionId, "staging");
+        return [{ type: "message", text: "Staging deploys from `develop`." }];
+      }
+      const remembered = saidEarlier.get(sessionId);
+      return [
+        {
+          type: "message",
+          text: remembered
+            ? "Production deploys from `main`, unlike staging."
+            : "Unlike what? I have no idea what you are referring to.",
+        },
+      ];
+    };
+
+    await h.mention({ text: `<@${BOT_USER_ID}> how does staging deploy?` });
+    await h.mention({ text: `<@${BOT_USER_ID}> and how does the other one differ?` });
+
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toContain(
+      "Production deploys from `main`, unlike staging.",
+    );
+    // The human said "the other one" and nothing more; the wrapper must not have
+    // helpfully pasted the earlier exchange back into the prompt.
+    expect(h.engine.promptFor(1)).not.toContain("staging deploy");
+  });
+
+  it("remembers the Thread's Session across a restart of the instance", async () => {
+    const first = await coworkerHarness();
+    await first.mention({ thread_ts: "1700000042.000100" });
+    const sessionBefore = first.engine.sessionFor(0);
+
+    const restarted = await first.restart();
+    await restarted.mention({ thread_ts: "1700000042.000100" });
+
+    expect(restarted.engine.startedSessions).toHaveLength(0);
+    expect(restarted.engine.resumedSessions.map((r) => r.sessionId)).toEqual([sessionBefore]);
+  });
+
+  it("runs a different Thread in a different Session, seeing nothing of the first", async () => {
+    const h = await coworkerHarness();
+    h.engine.script = ({ sessionId }) => [{ type: "message", text: `Answered by ${sessionId}.` }];
+
+    await h.mention({ channel: "C_PRIVATE", thread_ts: "1700000042.000100" });
+    await h.mention({ channel: "C_PUBLIC", thread_ts: "1700000099.000100" });
+
+    expect(h.engine.resumedSessions).toEqual([]);
+    expect(h.engine.startedSessions).toHaveLength(2);
+    expect(h.engine.sessionFor(1)).not.toBe(h.engine.sessionFor(0));
+    // The public Thread's answer came out of its own Session, not the private one's.
+    expect(h.slack.textsIn("1700000099.000100")).toContain(
+      `Answered by ${h.engine.sessionFor(1)}.`,
+    );
+  });
+
+  it("records the Session before the Turn finishes, so a crash leaves it resumable", async () => {
+    const first = await coworkerHarness();
+    first.engine.script = () => {
+      throw new Error("the process died mid-Turn");
+    };
+    await first.mention({ thread_ts: "1700000042.000100" });
+    const orphaned = first.engine.sessionFor(0);
+
+    // The Turn never completed, but the Session exists on the engine's disk. If the
+    // mapping were only written on success it would be orphaned there, and the Thread
+    // would start over from nothing on the next mention.
+    const restarted = await first.restart();
+    await restarted.mention({ thread_ts: "1700000042.000100" });
+
+    expect(restarted.engine.resumedSessions.map((r) => r.sessionId)).toEqual([orphaned]);
+  });
+
+  it("keeps only identifiers, never the conversation, in the state it owns", async () => {
+    const h = await coworkerHarness();
+    h.engine.script = () => [{ type: "message", text: "We deploy from `main` on merge." }];
+
+    await h.mention({
+      channel: "C_PRIVATE_INCIDENTS",
+      text: `<@${BOT_USER_ID}> what is our deploy process?`,
+    });
+
+    // The wrapper's only durable state is the mapping. Session content belongs to the
+    // engine and Notes belong to the Vault; a transcript here would be a third store.
+    expect(await readdir(h.stateDir)).toEqual(["sessions.json"]);
+    const stored = await readFile(path.join(h.stateDir, "sessions.json"), "utf8");
+    expect(stored).toContain(h.engine.sessionFor(0));
+    expect(stored).not.toContain("deploy");
+
+    // And it names no Thread. Codex names each rollout file after its session id, and
+    // filesystem reads are not restricted, so a `channel → session id` mapping would
+    // be a lookup table from a private channel to the file holding its conversation.
+    expect(stored).not.toContain("C_PRIVATE_INCIDENTS");
+    expect(stored).not.toContain(DEFAULT_THREAD_TS);
+  });
+
+  it.each([
+    ["truncated", "{ \"version\": 1, \"sessions\": { "],
+    ["empty", ""],
+    ["null", "null"],
+    ["from a future version", '{ "version": 2, "sessions": {} }'],
+  ])("refuses to start on a Session store that is %s", async (_shape, contents) => {
+    const h = await coworkerHarness();
+    await h.mention();
+    await writeFile(path.join(h.stateDir, "sessions.json"), contents, "utf8");
+
+    // Starting anyway would mean every Thread silently forgetting everything, which a
+    // self-hoster should learn at startup rather than from a Job that answered as if
+    // they had never met. The file is left alone: deleting it is their call.
+    await expect(h.restart()).rejects.toThrow(/Session store/);
+    expect(await readFile(path.join(h.stateDir, "sessions.json"), "utf8")).toBe(contents);
   });
 });
 

@@ -3,6 +3,7 @@ import { createCoworker, type Logger } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
 import { unimplementedInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
+import { openSessionStore, sessionStoreFile } from "./sessions/store.ts";
 import { createSlackApp, slackClientFor, subscribeToMentions } from "./slack/gateway.ts";
 import { createMentionGateway } from "./slack/mentions.ts";
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
     slack: slackClientFor(app),
     engine: await createCodexEngine(config.engine),
     clock: systemClock,
+    sessions: await openSessionStore({ filePath: sessionStoreFile(config.stateDir) }),
     inventoryProber: unimplementedInventoryProber,
     log,
   });

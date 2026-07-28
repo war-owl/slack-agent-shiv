@@ -49,16 +49,29 @@ export class FakeSlack implements SlackClient {
 /** What the fake engine does for one Turn. */
 export type EngineScript = (context: {
   prompt: string;
+  /** Which Session the Turn is running in, so a script can answer per-Thread. */
+  sessionId: string;
 }) => AsyncIterable<EngineEvent> | Iterable<EngineEvent> | Promise<Iterable<EngineEvent>>;
 
+/** One Turn the fake engine was asked to run. */
+export interface FakeTurn {
+  prompt: string;
+  /** The Session it ran in — the same value a real Codex would report as its id. */
+  sessionId: string;
+}
+
 export class FakeEngine implements Engine {
-  /** The prompt of every Turn run, in order. */
-  readonly turns: string[] = [];
+  /** Every Turn run, in order. */
+  readonly ranTurns: FakeTurn[] = [];
   readonly startedSessions: SessionOptions[] = [];
+  /** Every resume attempt, in order — a real Codex reads these off its own disk. */
+  readonly resumedSessions: { sessionId: string; options: SessionOptions }[] = [];
   versionToReport = RECORDED_CODEX_VERSION;
 
   /** Replaced per test to script what the engine does. */
   script: EngineScript = () => [{ type: "message", text: "Done." } as const];
+
+  private nextSession = 1;
 
   async version(): Promise<string> {
     return this.versionToReport;
@@ -66,19 +79,34 @@ export class FakeEngine implements Engine {
 
   startSession(options: SessionOptions): EngineSession {
     this.startedSessions.push(options);
+    return this.session(`session-${this.nextSession++}`, false);
+  }
+
+  /**
+   * A fresh instance of this class models a restarted process, so a Session started
+   * before the restart still resumes here — which is what a real Codex does, because
+   * the conversation is on its disk rather than in this process.
+   */
+  resumeSession(sessionId: string, options: SessionOptions): EngineSession {
+    this.resumedSessions.push({ sessionId, options });
+    return this.session(sessionId, true);
+  }
+
+  private session(sessionId: string, resumed: boolean): EngineSession {
     const engine = this;
-    let id: string | null = null;
+    // A real Session has no id until a Turn starts; a resumed one knows it up front.
+    let id: string | null = resumed ? sessionId : null;
     return {
       get id() {
         return id;
       },
       run(prompt: string): AsyncIterable<EngineEvent> {
-        engine.turns.push(prompt);
-        id ??= `session-${engine.startedSessions.length}`;
+        engine.ranTurns.push({ prompt, sessionId });
+        id = sessionId;
         return (async function* () {
-          yield { type: "session-started", sessionId: id as string } as const;
+          yield { type: "session-started", sessionId } as const;
           yield { type: "turn-started" } as const;
-          for await (const event of await engine.script({ prompt })) {
+          for await (const event of await engine.script({ prompt, sessionId })) {
             yield event;
           }
         })();
@@ -86,11 +114,25 @@ export class FakeEngine implements Engine {
     };
   }
 
+  /** The prompts of every Turn run, in order. */
+  get turns(): string[] {
+    return this.ranTurns.map((turn) => turn.prompt);
+  }
+
   /** The prompt the engine received for a given Turn, for assertions. */
   promptFor(turn: number): string {
-    const prompt = this.turns[turn];
-    if (prompt === undefined) throw new Error(`The fake engine never ran turn ${turn}`);
-    return prompt;
+    return this.turnAt(turn).prompt;
+  }
+
+  /** Which Session a given Turn ran in, for asserting Thread isolation. */
+  sessionFor(turn: number): string {
+    return this.turnAt(turn).sessionId;
+  }
+
+  private turnAt(turn: number): FakeTurn {
+    const ran = this.ranTurns[turn];
+    if (ran === undefined) throw new Error(`The fake engine never ran turn ${turn}`);
+    return ran;
   }
 }
 

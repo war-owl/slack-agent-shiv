@@ -71,7 +71,7 @@ describe("the real engine", () => {
 
     const started = events.find((event) => event.type === "session-started");
     expect(started?.type === "session-started" && started.sessionId).toMatch(/[0-9a-f-]{36}/);
-    // The Session's identity is what ticket 02 will persist against a Thread.
+    // The Session's identity is what the wrapper persists against a Thread.
     expect(session.id).toBe(started?.type === "session-started" ? started.sessionId : undefined);
 
     const answers = events.flatMap((event) => (event.type === "message" ? [event.text] : []));
@@ -81,6 +81,62 @@ describe("the real engine", () => {
     expect(completed?.type === "turn-completed" && completed.usage?.outputTokens).toBeGreaterThan(
       0,
     );
+  });
+
+  it("resumes a Session in a fresh process, remembering what it was told", async () => {
+    const first = engine.startSession({ workingDirectory: workspace });
+    for await (const event of first.run(
+      "Remember this for later: the deploy codeword is `saltmarsh`. Reply with just OK.",
+    )) {
+      if (event.type === "turn-failed") throw new Error(event.message);
+    }
+    const sessionId = first.id;
+    expect(sessionId).toMatch(/[0-9a-f-]{36}/);
+
+    // A second engine over the same installed Codex, sharing nothing with the first
+    // but the identifier — which is exactly what the wrapper persists and all it has
+    // after a restart. The Session's content is on Codex's disk, not in this process.
+    const restarted = await createCodexEngine({ model: "gpt-5.6-sol", reasoningEffort: "low" });
+    const resumed = restarted.resumeSession(sessionId!, { workingDirectory: workspace });
+
+    const answers: string[] = [];
+    for await (const event of resumed.run("What was the deploy codeword? Reply with just the word.")) {
+      if (event.type === "message") answers.push(event.text);
+      if (event.type === "turn-failed") throw new Error(event.message);
+    }
+
+    expect(answers.at(-1)?.toLowerCase()).toContain("saltmarsh");
+    expect(resumed.id).toBe(sessionId);
+  });
+
+  /**
+   * Ticket 02 asks that the coworker **cannot** reach Codex's own session storage,
+   * verified rather than assumed. This is the verification, and it currently fails to
+   * find any such guarantee: under `workspace-write` the sandbox allows reads
+   * anywhere, `codex exec` exposes no way to narrow them (`--permission-profile` and
+   * its readable roots are not on `exec`, and `sandbox_permissions=[]` is inert), so a
+   * Job can list every Thread's rollout file.
+   *
+   * The assertion is therefore written the way the finding actually is. **If this test
+   * starts failing, that is good news**: upstream has restricted reads, and ADR-0003's
+   * "Sessions never read each other" can be upgraded from a behavioural guarantee to a
+   * structural one. See the comments on ticket 02.
+   */
+  it("cannot yet be prevented from reading Codex's own session storage", async () => {
+    const session = engine.startSession({ workingDirectory: workspace });
+
+    const outputs: string[] = [];
+    for await (const event of session.run(
+      'Run the shell command `find "$HOME/.codex/sessions" -name "*.jsonl" | head -2` ' +
+        "and report its output verbatim. Do not do anything else.",
+    )) {
+      if (event.type === "command" && event.status === "completed") outputs.push(event.output);
+    }
+
+    // Asserted on the rollout filenames themselves rather than on the absence of a
+    // denial message: "no such file or directory" is also not a denial, and a test that
+    // passed on it would report this hole as closed when the directory had merely moved.
+    expect(outputs.join("\n")).toMatch(/rollout-[\dT-]+-[0-9a-f-]{36}\.jsonl/);
   });
 
   it("translates a command execution, including its output and exit code", async () => {

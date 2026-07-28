@@ -1,8 +1,9 @@
 import type { Config } from "./config.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
 import type { Clock } from "./ports/clock.ts";
-import type { Engine } from "./ports/engine.ts";
+import type { Engine, EngineSession, SessionOptions } from "./ports/engine.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
+import type { SessionStore } from "./ports/sessions.ts";
 import type { SlackClient } from "./ports/slack.ts";
 import { runPreflight } from "./preflight.ts";
 import type { Thread } from "./thread.ts";
@@ -34,6 +35,8 @@ export interface CoworkerDeps {
   slack: SlackClient;
   engine: Engine;
   clock: Clock;
+  /** The `thread_ts → session id` mapping. The wrapper's only durable state. */
+  sessions: SessionStore;
   inventoryProber: McpInventoryProber;
   log: Logger;
 }
@@ -71,7 +74,7 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
 
   try {
     const workingDirectory = await prepareWorkspace(deps.config, mention.thread, deps.log);
-    const session = deps.engine.startSession({
+    const session = await openSession(deps, mention.thread, {
       workingDirectory,
       writableDirectories: [deps.config.vaultDir],
     });
@@ -80,6 +83,12 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
     let failure: string | undefined;
     for await (const event of session.run(buildJobPrompt(mention))) {
       switch (event.type) {
+        case "session-started":
+          // Recorded now rather than at the end of the Job: this is the first moment
+          // the Session has an identity, and a crash after it would otherwise orphan
+          // the Session on the engine's disk and start this Thread over from nothing.
+          await deps.sessions.set(mention.thread, event.sessionId);
+          break;
         case "message":
           // The last agent message is the answer; earlier ones are working notes.
           answer = event.text;
@@ -104,6 +113,29 @@ async function runJob(deps: CoworkerDeps, mention: Mention): Promise<void> {
   );
 
   await deps.slack.postMessage({ thread: mention.thread, text });
+}
+
+/**
+ * The Thread's Session: resumed if it has one, started if this is its first Job.
+ *
+ * Exactly one Session per Thread for the life of the Thread, so a follow-up three
+ * days later remembers what was said. Sessions are never shared between Threads —
+ * Threads have different audiences, and a Session that could see another Thread's
+ * conversation would put a private channel one question from a public answer. The
+ * only channel between them is the Vault (ADR-0003).
+ */
+async function openSession(
+  deps: CoworkerDeps,
+  thread: Thread,
+  options: SessionOptions,
+): Promise<EngineSession> {
+  const recorded = await deps.sessions.get(thread);
+  if (recorded === undefined) {
+    deps.log.info(`Starting a new Session for thread ${thread.ts}`);
+    return deps.engine.startSession(options);
+  }
+  deps.log.info(`Resuming Session ${recorded} for thread ${thread.ts}`);
+  return deps.engine.resumeSession(recorded, options);
 }
 
 function finalReport(answer: string, failure: string | undefined): string {

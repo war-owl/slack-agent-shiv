@@ -10,6 +10,7 @@ import {
   type Thread,
   type ThreadEvent,
   type ThreadItem,
+  type ThreadOptions,
 } from "@openai/codex-sdk";
 import type {
   ActivityStatus,
@@ -54,24 +55,35 @@ export async function createCodexEngine(options: CodexEngineOptions): Promise<En
   const binary = await resolveCodexBinary(options.codexPath);
   const codex = new Codex(binary.path ? { codexPathOverride: binary.path } : {});
 
+  const threadOptions = (session: SessionOptions): ThreadOptions => ({
+    model: options.model,
+    modelReasoningEffort: options.reasoningEffort,
+    // ADR-0002 layer 2: the agent writes in its workspace and the Vault, and
+    // nowhere else. Network is on because the work is GitHub, Linear, and the
+    // web; `execpolicy` is unrestricted in v1.
+    sandboxMode: "workspace-write",
+    networkAccessEnabled: true,
+    workingDirectory: session.workingDirectory,
+    additionalDirectories: [...(session.writableDirectories ?? [])],
+    // A Job's workspace is a plain directory, not a checkout.
+    skipGitRepoCheck: true,
+  });
+
   return {
     version: async () => binary.version,
 
     startSession(session: SessionOptions): EngineSession {
-      const thread = codex.startThread({
-        model: options.model,
-        modelReasoningEffort: options.reasoningEffort,
-        // ADR-0002 layer 2: the agent writes in its workspace and the Vault, and
-        // nowhere else. Network is on because the work is GitHub, Linear, and the
-        // web; `execpolicy` is unrestricted in v1.
-        sandboxMode: "workspace-write",
-        networkAccessEnabled: true,
-        workingDirectory: session.workingDirectory,
-        additionalDirectories: [...(session.writableDirectories ?? [])],
-        // A Job's workspace is a plain directory, not a checkout.
-        skipGitRepoCheck: true,
-      });
-      return codexSession(thread);
+      return codexSession(codex.startThread(threadOptions(session)));
+    },
+
+    /**
+     * Codex persists each Session as an append-only rollout under its own home, so
+     * resuming needs nothing but the identifier — the conversation is already there.
+     * The options are passed again because they describe *this* Job's sandbox, which
+     * is the same shape but a fresh subprocess.
+     */
+    resumeSession(sessionId: string, session: SessionOptions): EngineSession {
+      return codexSession(codex.resumeThread(sessionId, threadOptions(session)));
     },
   };
 }

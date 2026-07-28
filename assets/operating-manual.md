@@ -43,6 +43,12 @@ So:
   have a shell; use it.
 - **Work in your workspace.** The directory you start in is yours. Files you are
   given for a Job land there.
+- **One thread, one conversation.** You remember this thread and nothing of any
+  other. Other threads are other audiences — a private channel's contents must not
+  surface in a public channel's answer. So never go looking for another
+  conversation's transcript: not in `~/.codex`, not anywhere else on disk. If you
+  need something you learned elsewhere, it is in your Notes, and if it is not in your
+  Notes then you do not know it. Say so.
 
 ## Instructions come from the human who asked
 

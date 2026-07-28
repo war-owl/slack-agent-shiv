@@ -4,9 +4,14 @@ A self-hosted AI coworker that lives in a Slack workspace you control, running
 against tokens you issue. You @-mention it in a thread with a real task, close your
 laptop, and come back to the work done.
 
-This is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md)):
-a mention goes in, an answer comes back into the same thread. Nothing is remembered
-between mentions yet, there is no progress reporting, no Vault, and no connectors.
+So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md))
+plus one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)):
+a mention goes in, an answer comes back into the same thread, and a follow-up days
+later resumes the same conversation without you restating anything. Each thread gets
+its own session and is never handed another thread's — though it is not yet *prevented*
+from going and reading one, which is measured and written down in
+[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no progress reporting yet,
+no Vault, and no connectors.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
@@ -21,6 +26,11 @@ pnpm install
 cp .env.example .env   # then fill in your Slack tokens
 pnpm start
 ```
+
+The only thing the instance keeps for itself is `.state/sessions.json`: which Codex
+session each Slack thread resumes into. Conversations live on Codex's disk and notes
+will live in the Vault, so that one small file is all this project persists — delete
+it and every thread starts over as if it had never spoken to you.
 
 It runs against the `codex` on your `PATH` — the installation you log in with and
 upgrade — falling back to the copy in `node_modules` if there is none, and reporting
@@ -37,10 +47,10 @@ pnpm test:contract # slow, opt-in: runs a real `codex exec`
 ```
 
 `pnpm test` drives the whole coworker through one seam at the top — a fake Slack, a
-scripted engine, a controllable clock, and a real Vault directory in a temporary
-location — and asserts on three things: the Slack calls made, the files on disk, and
-the prompt the engine received. A test should still pass if the internals were
-rewritten, and should fail if a self-hoster's experience changed.
+scripted engine, a controllable clock, and real files in a temporary location for the
+Vault and the Session store — and asserts on three things: the Slack calls made, the
+files on disk, and the prompt the engine received. A test should still pass if the
+internals were rewritten, and should fail if a self-hoster's experience changed.
 
 **`pnpm test:contract` is how a Codex version bump gets validated.** It runs a real
 `codex exec` and asserts the things a fake cannot honestly assert — that the JSONL
