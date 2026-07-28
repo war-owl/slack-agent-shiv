@@ -96,3 +96,17 @@ A coworker that can act is useful *because* it can act. What is deliberately acc
 - Pinning detects inventory *change*, not inventory *danger*. A human still has to read the diff.
 
 Recorded as [ADR-0002](../../../docs/adr/0002-unattended-action-boundary.md).
+
+## Comments
+
+**Amended — fine-grained PATs ruled out.** The project has decided against fine-grained PATs. A classic PAT's `repo` scope is all-or-nothing and cannot separate merge from pull-request write, so **layer 3 as decided here (token scoping) has no implementation** and the conditional flagged above resolves against it — not by GitHub's limitation, but by choice.
+
+The boundary moves from the credential to the repository: **branch protection on the default branch** (require a PR, require an approving review, disallow bypassing including admins), verified by preflight, which refuses to start on an unprotected repository. Of the three fallbacks named in the original answer, egress allow-listing was rejected as ineffective — the merge endpoint shares a host with every legitimate read, so only a filtering proxy could distinguish them — and withholding the credential from the shell was rejected as unverified, since Codex's sandbox permits broad filesystem reads.
+
+What changes in kind: the guarantee is now **per-repository and opt-in** rather than a property of the token. That is a real loss of robustness, and the preflight check is the entire mitigation.
+
+Two consolations. `delete_repo` and `admin:org` are simply not granted, so repository deletion and org administration are impossible at the credential after all; `workflow` is withheld too, since a writable CI definition routes around every other control. And a classic PAT **can** use the Search API, so the coworker keeps issue search — the capability a fine-grained PAT would have cost it.
+
+Still conditional, on two checks now on [ticket 05](05-provision-accounts-and-tokens.md): that bypass-disabled protection actually binds a repository admin, and that it is available on a free private repo. If merge succeeds against a protected branch, this ticket reopens and the only remaining option is accepting the bypass explicitly.
+
+[ADR-0002](../../../docs/adr/0002-unattended-action-boundary.md) has been amended accordingly.

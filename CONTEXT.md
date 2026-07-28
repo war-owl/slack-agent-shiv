@@ -50,7 +50,19 @@ It is an ordinary Note otherwise. A human can open it and rewrite it.
 
 ## Librarian
 
-The coworker's standing responsibility for the Vault's navigability, discharged in a short Turn at the end of each Job: file the Note where it belongs, wire its wikilinks, update the Root note if a new hub appeared. Deliberately separate from doing the work, because curation degrades when it competes with the task for attention.
+The coworker's standing responsibility for the Vault's navigability, discharged at the end of each Job: judge whether anything durable was learned, and if so file the Note where it belongs, wire its wikilinks, and update the Root note if a new hub appeared. Deliberately separate from doing the work, because curation degrades when it competes with the task for attention.
+
+**Writing nothing is a normal outcome.** Most Jobs answer a question and leave no trace in the Vault; only what is worth remembering becomes a Note. The judgment is the Librarian's, not a rule.
+
+The Librarian may not write a [Skill](#skill) — those are human-authored.
+
+## Skill
+
+A procedure a human wrote down for the coworker to follow: how to reach a system, which command to run, how to read the result. A Markdown file like any Note, in the same Vault, edited in the same Obsidian.
+
+Two things separate a Skill from a Note. A Note is *belief*; a Skill is *instruction* — it directs behaviour rather than describing the world. And a Skill is **human-authored only**: the coworker reads and follows it but cannot write one, because a Skill it could edit would be a way for one Job to run commands in another Job's Thread.
+
+A Skill names an environment variable where a credential is needed; it never contains one.
 
 ## Write
 

@@ -80,19 +80,82 @@ The GitHub hosted MCP server also accepts the `gh` OAuth token. It exposed **44 
 
 ### Still outstanding on this ticket
 
-- A **Slack test workspace and app** (manifest, scopes, install, `xapp-`/`xoxb-` tokens) — nothing else has been done here.
-- A **fine-grained GitHub PAT** to close Check 1.
-- The **org-approval trap** — untested; needs a fine-grained PAT against an org repo.
+- ~~A **classic GitHub PAT**~~ — **done.** Issued with exactly `repo` (verified: `x-oauth-scopes: repo`), withholding `delete_repo`, `admin:org`, and `workflow`.
+- ~~**Checks A and B**~~ — **both run.** See [the answer below](#answer--checks-a-and-b). A passes; **B fails**, and the failure is load-bearing.
+- A **Slack test workspace and app** — tokens are now present in the local `.env` (`SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`); the end-to-end install is unverified until `build/01` runs.
+- The **org-approval trap** — untested; needs the classic PAT against an org repo.
+- **Withheld-`workflow` behaviour** — untested; needs a push touching a workflow file.
+- ~~**Withheld-`delete_repo` behaviour**~~ — **verified.** `DELETE /repos/{o}/{r}` on a repo the user owns and administers returned **403**. The scope exclusion does real work. **Trap worth documenting:** the error message is `"Must have admin rights to Repository"`, which misattributes the cause — the user *is* an admin; the *token* lacks the scope. A self-hoster debugging this will look at repository permissions and find nothing wrong.
 - **Codex auth mode** for an always-on bot — untested.
 
-## Blocking check added by ticket 12
+*(Check 1 above — fine-grained PAT search — is withdrawn, not outstanding. See below.)*
 
-**Can a GitHub fine-grained PAT grant pull-request write *without* merge rights?**
+## Blocking check — withdrawn, and reshaped
 
-[ADR-0002](../../../docs/adr/0002-unattended-action-boundary.md) makes the credential the security boundary — the agent has shell access, so `gh api -X PUT …/pulls/N/merge` bypasses any MCP tool policy. The entire safety model rests on the token being *unable* to merge.
+**The original check is withdrawn.** It asked whether a GitHub fine-grained PAT could grant pull-request write without merge rights. **Fine-grained PATs are now ruled out by project decision**, so the question has no bearing on anything — and with it, Check 1 above (whether a fine-grained PAT can use the Search API) is moot too. The token is a **classic PAT with `repo` scope**, which searches fine; that was already measured above with a classic-equivalent `gho_` token.
 
-Test it: create a fine-grained PAT with `Pull requests: write` on a throwaway repo, open a PR, and attempt `PUT /repos/{o}/{r}/pulls/{n}/merge`. A 403 confirms the model; a 200 breaks it.
+Ruling out fine-grained PATs collapsed [ADR-0002](../../../docs/adr/0002-unattended-action-boundary.md)'s third layer, since classic `repo` scope cannot separate merge from pull-request write. The ADR is **amended**: the boundary moves from the credential to the repository, enforced by branch protection. Two new checks replace the withdrawn one.
 
-**If it returns 200, ticket 12 reopens** and must choose between sandbox egress allow-listing, withholding the credential from the shell, or accepting the bypass explicitly. Do not build against ADR-0002 until this is known.
+### Check A — does branch protection bind the token's own user?
 
-While that token exists, it also closes the original Check 1 (whether a fine-grained PAT can use the Search API) and the org-approval trap check — same token, same sitting.
+The safety model now rests on the coworker being *unable* to merge because the **repository** refuses, not because the token lacks a permission.
+
+Test it: on a throwaway repo, protect the default branch with *require a pull request before merging*, *require at least one approving review*, and *do not allow bypassing the above settings*. Then, with the classic PAT, open a PR and attempt `PUT /repos/{o}/{r}/pulls/{n}/merge`. Attempt a force-push to the default branch as well. **A 405/403 on both confirms the amended model; a 200 breaks it.**
+
+Run it as an account that is an **admin** on the repo. That is the hostile case — self-hosters typically own their repositories, and the entire question is whether bypass-disabled actually binds an owner.
+
+**If merge succeeds, ADR-0002 reopens**, and the only remaining option is accepting the bypass explicitly — egress allow-listing and withholding the credential from the shell were both considered and rejected in the amended ADR. Do not build against layer 3 until this is known.
+
+### Check B — is protection available where self-hosters will need it?
+
+Classic branch-protection rules have historically been **plan-gated on private repositories**; rulesets may be the mechanism that works on a free private repo. Establish which one a self-hoster on a free plan can actually use — "protect your default branch" is useless advice if the button is behind a paywall, and both the setup guide and the preflight check depend on the answer.
+
+Record **which API endpoint preflight should query** to verify protection. Branch protection and rulesets are different endpoints with different response shapes.
+
+### Also confirm while provisioning
+
+- **Withheld scopes behave as expected.** The token grants `repo` and withholds `delete_repo`, `admin:org`, and `workflow`. Confirm that a push touching a workflow file is rejected without `workflow` — that exclusion is doing real work, since a writable CI definition is an execution path around every other control.
+- **The org-approval trap** — still worth capturing, now against a classic PAT: an unapproved token authenticates and then silently reads only public data.
+
+## Answer — Checks A and B
+
+Run 2026-07-28 against a live classic PAT (`x-oauth-scopes: repo`, user `shivsarthak`, id `25551419`) on a purpose-made throwaway, `shivsarthak/open-agent-protection-test`. **The credential is not recorded here and was not written to any file in the repo.**
+
+### Check A — does bypass-disabled protection bind an admin? **PASS**
+
+Setup: public repo, ruleset `protect-default`, `enforcement: active`, targeting `~DEFAULT_BRANCH`, rules `deletion` + `non_fast_forward` + `pull_request` (1 approving review), and critically **`bypass_actors: []`**. Acting account is repo **admin** — the hostile case.
+
+| Attempt | Result |
+|---|---|
+| `PUT /pulls/1/merge` (squash) | **405** — `Repository rule violations found … At least 1 approving review is required by reviewers with write access.` |
+| `git push --force origin main` | **rejected** — `GH013: Repository rule violations found for refs/heads/main` / `Cannot force-push to this branch` / `Changes must be made through a pull request.` |
+
+**Bypass-disabled rulesets genuinely bind a repository admin.** ADR-0002's third layer is sound where it can be switched on, and the ADR does not reopen on this axis.
+
+### Check B — is protection available where self-hosters need it? **FAIL — both mechanisms**
+
+Same account, free plan, **private** repo:
+
+| Mechanism | Endpoint | Result |
+|---|---|---|
+| Classic branch protection | `PUT /branches/main/protection` | **403** — `Upgrade to GitHub Pro or make this repository public to enable this feature.` |
+| Repository rulesets | `POST /rulesets` | **403** — *identical message* |
+
+The research hypothesised that rulesets might be the mechanism that works on a free private repo. **It is not — the two are gated identically.** Protection had to be obtained by making the repo public, which is how Check A was run at all.
+
+**Consequence: layer 3 does not exist for a self-hoster on a free plan working in private repositories** — plausibly the modal user. For them the action boundary is layers 1 and 2 alone, which is the posture [ADR-0002](../../../docs/adr/0002-unattended-action-boundary.md) already calls "the weaker half" when describing Linear. This does not reopen the ADR — Check A holds — but it does mean the ADR's per-repository, opt-in guarantee is additionally **plan-gated**, and that is not currently written down anywhere.
+
+**Open product decision, carried to [build/10](../build/10-branch-protection-verification.md):** that ticket says refuse startup when a default branch is unprotected. Taken literally the product cannot run against free private repos at all. Three options — refuse and document GitHub Pro as a prerequisite; run degraded with a loud startup warning; or refuse only for private repos while allowing public. **Not decided here.**
+
+### The preflight endpoint — answered
+
+Two calls, and the second is the one that matters:
+
+1. `GET /repos/{o}/{r}/rules/branches/{default_branch}` — returns **effective** rules and is *mechanism-agnostic*, so it covers classic protection and rulesets in one shape. Each entry carries `type` and a `ruleset_id`. Check for `pull_request` with `required_approving_review_count >= 1` and for `non_fast_forward`.
+2. `GET /repos/{o}/{r}/rulesets/{ruleset_id}` — **bypass state is not on the `/rules` response.** This returns `bypass_actors` and, better, **`current_user_can_bypass`**, observed as `"never"`. That field answers preflight's real question — *can this token's own user bypass this rule?* — directly, without reasoning about actor lists.
+
+So preflight should resolve rules on the default branch, then confirm `current_user_can_bypass == "never"` on each contributing ruleset. Verified rather than inferred.
+
+### Cleanup state
+
+Ruleset deleted (204), PR #1 closed, `test-head` deleted. Deletion of `shivsarthak/open-agent-protection-test` was attempted and **correctly refused (403)** — the token withholds `delete_repo` — so teardown is a human action via the web UI. Decision taken: the repo is **not** kept as a `build/10` fixture; that criterion will be re-verified against whatever repository the self-hoster configures.
