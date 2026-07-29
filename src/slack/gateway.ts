@@ -6,6 +6,7 @@ import type {
   PostedMessage,
   SetStatus,
   SlackClient,
+  SlackIdentity,
   UpdateMessage,
 } from "../ports/slack.ts";
 import type { MentionGateway } from "./mentions.ts";
@@ -37,6 +38,19 @@ export function createSlackApp(config: Config): App {
 /** The narrow Slack surface the coworker actually uses, backed by Bolt's client. */
 export function slackClientFor(app: App): SlackClient {
   return {
+    /**
+     * `auth.test`, which is the only call that validates the bot token without posting
+     * anything. Bolt's own `app.start()` proves the *app-level* token by opening the socket;
+     * this proves the other one, which is the one every reply depends on.
+     */
+    async identity(): Promise<SlackIdentity> {
+      const result = await app.client.auth.test();
+      if (!result.user_id) {
+        throw new Error("Slack accepted auth.test but named no user, which should not happen");
+      }
+      return { botUserId: result.user_id, team: result.team ?? "an unnamed workspace" };
+    },
+
     async postMessage(message: PostMessage): Promise<PostedMessage> {
       const result = await app.client.chat.postMessage({
         channel: message.thread.channel,

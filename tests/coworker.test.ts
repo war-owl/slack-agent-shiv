@@ -1,7 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { OPERATING_MANUAL_MAX_BYTES, RECORDED_CODEX_VERSION } from "../src/config.ts";
+import { OPERATING_MANUAL_MAX_BYTES } from "../src/config.ts";
 import { deferred } from "./support/fakes.ts";
 import { BOT_USER_ID, coworkerHarness, DEFAULT_THREAD_TS } from "./support/harness.ts";
 
@@ -133,75 +133,6 @@ describe("when the work does not succeed", () => {
     const texts = h.slack.textsIn("1700000042.000100");
     expect(texts).toHaveLength(2);
     expect(texts[1]?.trim()).not.toBe("");
-  });
-});
-
-describe("startup", () => {
-  it("reports the installed engine version", async () => {
-    const h = await coworkerHarness();
-    h.engine.versionToReport = RECORDED_CODEX_VERSION;
-
-    await h.coworker.preflight();
-
-    expect(h.logs.join("\n")).toContain(`Codex version ${RECORDED_CODEX_VERSION}`);
-    expect(h.warnings).toEqual([]);
-  });
-
-  it("warns when the installed engine version has drifted from the recorded one", async () => {
-    const h = await coworkerHarness();
-    h.engine.versionToReport = "0.146.0-alpha.13";
-
-    await h.coworker.preflight();
-
-    const warning = h.warnings.join("\n");
-    expect(warning).toContain("0.146.0-alpha.13");
-    expect(warning).toContain(RECORDED_CODEX_VERSION);
-  });
-
-  it("reports every configured connector's tool inventory", async () => {
-    const h = await coworkerHarness({
-      mcpServers: [
-        {
-          name: "github",
-          url: "https://api.githubcopilot.com/mcp/",
-          bearerTokenEnvVar: "GH_PAT",
-          writeTools: ["create_pull_request"],
-        },
-      ],
-    });
-    h.inventoryProber.inventories.set("github", {
-      tools: ["search_issues", "create_pull_request"],
-    });
-
-    await h.coworker.preflight();
-
-    expect(h.logs.join("\n")).toContain("Connector github advertises 2 tools");
-    expect(h.logs.join("\n")).toContain("search_issues, create_pull_request");
-    expect(h.warnings).toEqual([]);
-  });
-
-  it("warns when a connector names a writing tool it does not have", async () => {
-    const h = await coworkerHarness({
-      mcpServers: [
-        {
-          name: "github",
-          url: "https://api.githubcopilot.com/mcp/",
-          bearerTokenEnvVar: "GH_PAT",
-          writeTools: ["create_pull_request", "create_pull_requests"],
-        },
-      ],
-    });
-    h.inventoryProber.inventories.set("github", {
-      tools: ["search_issues", "create_pull_request"],
-    });
-
-    await h.coworker.preflight();
-
-    // The cost of the typo is silence: Writes through the tool that was meant would
-    // never reach the Thread, and nothing else would ever mention it.
-    const warning = h.warnings.join("\n");
-    expect(warning).toContain("create_pull_requests");
-    expect(warning).not.toContain("search_issues");
   });
 });
 

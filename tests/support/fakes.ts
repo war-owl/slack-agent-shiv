@@ -1,18 +1,26 @@
-import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
+import { RECORDED_CODEX_VERSION, RECORDED_GH_VERSION } from "../../src/config.ts";
 import type { Clock, Stoppable } from "../../src/ports/clock.ts";
 import type {
   Engine,
   EngineEvent,
   EngineSession,
   RunOptions,
+  SandboxPosture,
   SessionOptions,
 } from "../../src/ports/engine.ts";
+import type {
+  GitHubAppProbe,
+  GitHubAppReach,
+  GitHubCli,
+  GitHubInstallation,
+} from "../../src/ports/github.ts";
 import type { McpInventory, McpInventoryProber, McpServerConfig } from "../../src/ports/mcp.ts";
 import type {
   PostMessage,
   PostedMessage,
   SetStatus,
   SlackClient,
+  SlackIdentity,
   UpdateMessage,
 } from "../../src/ports/slack.ts";
 import type { Thread } from "../../src/thread.ts";
@@ -49,6 +57,8 @@ export interface StatusCall {
 export class FakeSlack implements SlackClient {
   /** Every text Slack was asked to show, posts and edits together, in order. */
   readonly writes: SlackWrite[] = [];
+  /** Set to make `auth.test` fail, as a revoked or mistyped bot token would. */
+  failIdentity: Error | undefined;
   /** Every edit *attempted*, including the ones that failed, stamped by the clock. */
   readonly editAttempts: (UpdateMessage & { at: number })[] = [];
   /** Every call to Slack's own status indicator. An empty status clears it. */
@@ -86,6 +96,11 @@ export class FakeSlack implements SlackClient {
         held.open.resolve();
       },
     };
+  }
+
+  async identity(): Promise<SlackIdentity> {
+    if (this.failIdentity) throw this.failIdentity;
+    return { botUserId: "U0COWORKER", team: "A Test Workspace" };
   }
 
   async postMessage(message: PostMessage): Promise<PostedMessage> {
@@ -203,6 +218,12 @@ export class FakeEngine implements Engine {
    */
   readonly oneOffTurns: FakeTurn[] = [];
   versionToReport = RECORDED_CODEX_VERSION;
+  /** What the real adapter configures, restated so the startup report has something true. */
+  sandbox: SandboxPosture = {
+    mode: "workspace-write",
+    networkEnabled: true,
+    execPolicy: "unrestricted (no rules configured)",
+  };
 
   /** Replaced per test to script what the engine does. */
   script: EngineScript = () => [{ type: "message", text: "Done." } as const];
@@ -470,8 +491,56 @@ export class FakeClock implements Clock {
 
 export class FakeInventoryProber implements McpInventoryProber {
   inventories = new Map<string, McpInventory>();
+  /** Set to make probing fail, as an unreachable or unauthorised server would. */
+  failure: Error | undefined;
+  /** Every server probed, in order — so a test can assert that one was not. */
+  readonly probed: string[] = [];
 
   async probe(server: McpServerConfig): Promise<McpInventory> {
+    this.probed.push(server.name);
+    if (this.failure) throw this.failure;
     return this.inventories.get(server.name) ?? { tools: [] };
+  }
+}
+
+/**
+ * A GitHub App installation that resolves, unless a test says otherwise.
+ *
+ * The default is the shape the project describes: an App installed on one account with two
+ * selected repositories and the permissions the shipped manifest declares. Every startup
+ * check on this path is about a *departure* from that shape, so the departure is what a test
+ * writes down.
+ */
+export class FakeGitHubApp implements GitHubAppProbe {
+  /** Every probe, so a test can assert a token really was minted at startup. */
+  readonly probes: { owner: string | undefined }[] = [];
+  /** Set to make the whole path fail — an uninstalled App, an unapproved org, a bad key. */
+  failure: Error | undefined;
+
+  installation: GitHubInstallation = {
+    id: 42_000_001,
+    account: "acme",
+    repositorySelection: "selected",
+    repositories: ["acme/web", "acme/infra"],
+    permissions: { contents: "write", issues: "write", pull_requests: "write" },
+  };
+
+  async probe(options: { owner?: string | undefined }): Promise<GitHubAppReach> {
+    this.probes.push({ owner: options.owner });
+    if (this.failure) throw this.failure;
+    return {
+      appSlug: "acme-coworker",
+      installation: this.installation,
+      tokenExpiresAt: "2026-07-29T12:00:00Z",
+    };
+  }
+}
+
+/** The `gh` on PATH. `undefined` stands in for there being none. */
+export class FakeGitHubCli implements GitHubCli {
+  versionToReport: string | undefined = RECORDED_GH_VERSION;
+
+  async version(): Promise<string | undefined> {
+    return this.versionToReport;
   }
 }

@@ -1,7 +1,9 @@
 import { loadConfig } from "./config.ts";
 import { createCoworker } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
-import { unimplementedInventoryProber } from "./mcp/prober.ts";
+import { createGitHubAppProbe, unconfiguredGitHubApp } from "./github/app.ts";
+import { ghCli } from "./github/cli.ts";
+import { createMcpInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
 import type { Logger } from "./ports/log.ts";
 import { openSessionStore, sessionStoreFile } from "./sessions/store.ts";
@@ -14,16 +16,27 @@ const log: Logger = {
 };
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  const config = await loadConfig();
   const app = createSlackApp(config);
 
   const coworker = createCoworker({
     config,
     slack: slackClientFor(app),
-    engine: await createCodexEngine(config.engine),
+    // The connectors reach the engine as *generated Codex configuration*, deny-list
+    // included — the wrapper is not in the tool path (ADR-0005), so this is the only way
+    // layer 2 exists at all.
+    engine: await createCodexEngine({ ...config.engine, mcpServers: config.mcpServers }),
     clock: systemClock,
     sessions: await openSessionStore({ filePath: sessionStoreFile(config.stateDir) }),
-    inventoryProber: unimplementedInventoryProber,
+    // One credential store, handed to everything that reads one — so the check and the thing
+    // it checks cannot end up reading different environments.
+    inventoryProber: createMcpInventoryProber(process.env),
+    github:
+      config.github === undefined
+        ? unconfiguredGitHubApp
+        : createGitHubAppProbe({ credentials: config.github, clock: systemClock }),
+    gh: ghCli,
+    env: process.env,
     log,
   });
 

@@ -35,7 +35,24 @@ export interface SetStatus {
   status: string;
 }
 
+/** Who the instance is, according to Slack. What `auth.test` answers. */
+export interface SlackIdentity {
+  /** The bot's own user id — the one that appears in `<@…>` when someone mentions it. */
+  botUserId: string;
+  /** The workspace the tokens belong to, so a startup line can name it. */
+  team: string;
+}
+
 export interface SlackClient {
+  /**
+   * Ask Slack who these tokens belong to.
+   *
+   * Called once at startup and nowhere else. The instance would otherwise discover a bad
+   * bot token on the first mention — as a Job that accepted the work, said nothing, and
+   * failed in the log — which is the failure preflight exists to move to a moment when
+   * somebody is watching.
+   */
+  identity(): Promise<SlackIdentity>;
   postMessage(message: PostMessage): Promise<PostedMessage>;
   /**
    * Rewrite a message in place. Preferred over posting for progress: `chat.update` is

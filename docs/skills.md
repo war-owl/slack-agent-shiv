@@ -22,7 +22,8 @@ which is the part of this document to read if you only read one.
   Skills/    ← the coworker reads these and cannot write them
 ```
 
-Configured as `NOTES_DIR` and `SKILLS_DIR`. Setting only `NOTES_DIR` puts Skills next to
+Configured as `vault.notes` and `vault.skills` in `open-agent.config.json`
+([docs/configuration.md](configuration.md)). Setting only `vault.notes` puts Skills next to
 it automatically, because the sibling relationship is what the write boundary depends on.
 
 **They have to be siblings, and the reason is mechanical.** The coworker's engine runs

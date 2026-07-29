@@ -1,0 +1,151 @@
+import { RECORDED_CODEX_VERSION, type Config } from "../config.ts";
+import { reasonFor } from "../failure.ts";
+import type { Engine } from "../ports/engine.ts";
+import type { GitHubAppProbe, GitHubCli } from "../ports/github.ts";
+import type { Logger } from "../ports/log.ts";
+import type { McpInventoryProber } from "../ports/mcp.ts";
+import type { SlackClient } from "../ports/slack.ts";
+import { readRootNote, rootNoteConcerns, ROOT_NOTE_FILENAME } from "../vault/root.ts";
+import { checkConnectors } from "./connectors.ts";
+import { checkGitHub } from "./github.ts";
+import { checkSkills } from "./skills.ts";
+
+/**
+ * What the instance checks before it accepts its first mention.
+ *
+ * The brief is one sentence: **a self-hoster starts the instance and either it runs or it
+ * tells them exactly what is wrong.** A missing token, a Codex or `gh` version that drifted
+ * from the recorded one, an MCP server that quietly grew a tool since it was last reviewed,
+ * or a GitHub App that is not installed where they think it is — each is found here, with
+ * somebody watching, rather than in a Thread three hours later.
+ *
+ * Two severities, and the line between them is load-bearing:
+ *
+ * - **A report** describes an instance that will work. Version drift, the repository list,
+ *   the bounds, the sandbox posture, a Root note full of prose. Some of these are warnings,
+ *   which means "this will behave in a way you may not have intended".
+ * - **A refusal** describes an instance whose boundaries are not the ones the documentation
+ *   claims: a connector whose tool surface nobody has reviewed, a Skills directory the agent
+ *   could rewrite, a GitHub App carrying `administration`. None of those is survivable,
+ *   because in each case the instance would run *perfectly* while being a different instance
+ *   from the one that was described.
+ *
+ * Order matters only in one respect: the cheap local checks come before the network ones, so
+ * a self-hoster with three things wrong does not have to wait on a GitHub round-trip to
+ * learn about the first of them.
+ */
+export async function runPreflight(deps: {
+  config: Config;
+  engine: Engine;
+  slack: SlackClient;
+  inventoryProber: McpInventoryProber;
+  github: GitHubAppProbe;
+  gh: GitHubCli;
+  log: Logger;
+  /**
+   * The credential store. Named credentials are resolved out of it, never guessed.
+   *
+   * Required rather than defaulted to `process.env`, and passed down to the prober from the
+   * same place: two components each falling back to the real environment is how a check and
+   * the thing it is checking end up reading different credentials.
+   */
+  env: NodeJS.ProcessEnv;
+}): Promise<void> {
+  deps.log.info(`Configuration: ${deps.config.source}`);
+
+  await checkEngine(deps);
+  reportBounds(deps);
+  await reportVault(deps);
+  await checkSkills(deps);
+  await checkSlack(deps);
+  await checkConnectors(deps);
+  await checkGitHub(deps);
+}
+
+/**
+ * The engine: which Codex is installed, and how it sandboxes a Job.
+ *
+ * v1 ships **no version pin**: the instance runs against whatever Codex is installed,
+ * records the version, and warns when it has drifted from the version this project was
+ * tested against. That report is not optional — Codex ships multiple alphas a day and has
+ * already removed flags a wrapper would plausibly depend on, so "it broke overnight and
+ * nobody can see why" is the failure mode this exists to make visible.
+ */
+async function checkEngine(deps: { engine: Engine; log: Logger }): Promise<void> {
+  const engineVersion = await deps.engine.version();
+  deps.log.info(`Codex version ${engineVersion} (recorded: ${RECORDED_CODEX_VERSION})`);
+  if (engineVersion !== RECORDED_CODEX_VERSION) {
+    deps.log.warn(
+      `The installed Codex is ${engineVersion}, but this project was built and tested ` +
+        `against ${RECORDED_CODEX_VERSION}. v1 pins no version, so the instance will run ` +
+        "anyway — but if it behaves strangely, this is the first thing to suspect. " +
+        "Run `pnpm test:contract` to check the engine still behaves as expected.",
+    );
+  }
+
+  // Read off the adapter that configures it rather than restated here, so this line cannot
+  // drift from the sandbox a Job actually gets. It is layer 2 for everything the coworker
+  // does by shell, which since ADR-0006 includes all of GitHub.
+  const sandbox = deps.engine.sandbox;
+  deps.log.info(
+    `Sandbox: ${sandbox.mode}, network ${sandbox.networkEnabled ? "enabled" : "disabled"}, ` +
+      `execpolicy ${sandbox.execPolicy}. The engine may write a Job's workspace and the ` +
+      "Notes, and nothing else.",
+  );
+}
+
+/**
+ * Reported because they are the wrapper's alone — the engine has no ceiling of its own —
+ * and because a self-hoster who has lowered one wants to see that it took.
+ */
+function reportBounds(deps: { config: Config; log: Logger }): void {
+  const bounds = deps.config.bounds;
+  deps.log.info(
+    `Bounds: ${Math.round(bounds.turnTimeoutMs / 1000)}s per Turn, ` +
+      `${bounds.maxTurnsPerJob} Turns per Job, ` +
+      `${bounds.tokenBudgetPerJob} tokens per Job. A Job that hits one is stopped.`,
+  );
+}
+
+/**
+ * The Vault, and the Root note's grammar.
+ *
+ * Said once at startup as well as once per Job, because the two readers are different
+ * people at different moments. A per-Job warning reaches whoever is watching the logs
+ * while a Job runs; this reaches the person who has just edited their Vault and
+ * restarted, which is exactly when a Root note full of prose gets written.
+ */
+async function reportVault(deps: { config: Config; log: Logger }): Promise<void> {
+  const root = await readRootNote(deps.config.notesDir);
+  deps.log.info(
+    root.exists
+      ? `Vault: ${deps.config.notesDir} — Root note has ${root.links.length} hub link(s)`
+      : `Vault: ${deps.config.notesDir} — no ${ROOT_NOTE_FILENAME} yet, so nothing is on the map`,
+  );
+  for (const concern of rootNoteConcerns(root, deps.config.notesDir)) deps.log.warn(concern);
+}
+
+/**
+ * Who Slack thinks the instance is.
+ *
+ * The bot token is otherwise not exercised until the first mention, where a bad one surfaces
+ * as a Job that accepted work in a Thread and then said nothing — the exact failure this
+ * whole file exists to move earlier. The workspace name is worth printing for a reason of
+ * its own: a self-hoster with a test workspace and a real one will eventually start the
+ * instance against the wrong tokens, and the moment to notice is now.
+ */
+async function checkSlack(deps: { slack: SlackClient; config: Config; log: Logger }): Promise<void> {
+  try {
+    const identity = await deps.slack.identity();
+    deps.log.info(
+      `Slack: connected to ${identity.team} as ${identity.botUserId}. Mention that user in a ` +
+        "channel it has been invited to.",
+    );
+  } catch (error) {
+    throw new Error(
+      `Slack rejected the bot token: ${reasonFor(error)}. The token came from the variable ` +
+        `named in ${deps.config.source}; an invalid or revoked one has to stop startup, ` +
+        "because the alternative is a Job that takes work in a Thread and cannot answer it.",
+    );
+  }
+}

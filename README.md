@@ -10,7 +10,9 @@ a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-
 an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)),
 bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)),
 a queue ([build/06](.scratch/slack-coworker/build/06-queue-at-turn-boundary.md)),
-and the Vault ([build/07](.scratch/slack-coworker/build/07-the-vault.md)):
+the Vault ([build/07](.scratch/slack-coworker/build/07-the-vault.md)),
+Skills ([build/15](.scratch/slack-coworker/build/15-skills.md)),
+and preflight ([build/08](.scratch/slack-coworker/build/08-preflight.md)):
 a mention goes in, one message keeps you posted on the plan and the step it is on, every
 action it takes out in the world is appended to the thread permanently, and an answer
 comes back into the same thread — where a follow-up days later resumes the same
@@ -18,7 +20,13 @@ conversation without you restating anything. Each thread gets its own session an
 is never handed another thread's — though it is not yet *prevented* from going and
 reading one, which is measured and written down in
 [ADR-0003](docs/adr/0003-vault-is-the-memory.md). It now remembers, in Markdown you own
-(below). No connectors yet.
+(below), and follows procedures you write down for it.
+
+Startup now checks itself: credentials, versions, and — for any MCP connector you configure
+— that its tool list is still the one you reviewed, with the irreversible tools disabled.
+A GitHub App is validated the same way. What is not built yet is the half that *uses* those:
+the GitHub Skill ([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and
+Linear ([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
@@ -30,9 +38,22 @@ You need Node 20+, [pnpm](https://pnpm.io), and a Codex login (`codex login`).
 
 ```bash
 pnpm install
-cp .env.example .env   # then fill in your Slack tokens
+cp .env.example .env                                        # your Slack tokens
+cp open-agent.config.example.json open-agent.config.json    # optional, see below
 pnpm start
 ```
+
+Two files, split by what is secret. **`.env` holds credentials and nothing else.**
+`open-agent.config.json` is the configuration — the vault, the bounds, the model, the
+connectors, the GitHub App — and it *names* the environment variables each credential lives
+in rather than containing them, so it is safe to commit and paste into an issue. Everything
+in it is optional; with no file at all you get a Slack coworker with a vault and no
+connectors. See [docs/configuration.md](docs/configuration.md).
+
+**Startup either runs or tells you exactly what is wrong.** A missing token, a `gh` that
+isn't installed, a connector whose tool list has changed since you reviewed it, a GitHub App
+that isn't installed where you think it is — each is found before the first mention, when
+somebody is watching, rather than three hours into a job in a thread.
 
 The only thing the instance keeps for itself is `.state/sessions.json`: which Codex
 session each Slack thread resumes into. Conversations live on Codex's disk and notes
@@ -41,7 +62,7 @@ every thread starts over as if it had never spoken to you.
 
 ## Its memory is a folder of Markdown
 
-Point `NOTES_DIR` at a directory — an Obsidian vault, if you use one — and that is
+Point `vault.notes` at a directory — an Obsidian vault, if you use one — and that is
 where everything the coworker learns goes. **There is no other memory**: no hidden
 store, no embedding index, nothing it believes that you cannot open in a text editor.
 Edit a Note by hand and it respects your edit; delete one and the belief is gone.
@@ -97,12 +118,12 @@ switch — so all three are this wrapper's, and they are the ones you get by doi
 nothing: **an hour on a single turn, eight turns per job, and a million tokens per
 job.** A job that hits one is killed and says in the thread which limit stopped it,
 how far it had got, and that whatever it had already done out in the world still
-stands. All three are configurable in `.env`.
+stands. All three are configurable under `bounds`.
 
 Worth knowing before you leave the defaults alone: Codex reports what a turn cost only
 once the turn is over, and a whole job is normally one turn — so the token budget can
 refuse the *next* turn but cannot stop one that is already spending. **The hour is
-therefore the real ceiling on a single runaway turn.** Lower `TURN_TIMEOUT_MS` if an
+therefore the real ceiling on a single runaway turn.** Lower `bounds.turnTimeoutMs` if an
 hour of unattended spend is more than you want to risk; it costs long jobs, not safety.
 
 You can also stop a job yourself: **`@coworker stop`, and nothing else in the
@@ -110,10 +131,10 @@ message.** A mention that says anything more is a correction, not a kill switch.
 Stopping kills the engine, but a shell command it had already launched can outlive it
 — see [build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md#the-limit-on-what-stop-means).
 
-Four jobs run at once across the whole instance (`MAX_CONCURRENT_JOBS`); the rest wait
+Four jobs run at once across the whole instance (`bounds.maxConcurrentJobs`); the rest wait
 their turn and say so in their thread.
 
-The closing pass that files notes has a bound of its own (`LIBRARIAN_TIMEOUT_MS`, five
+The closing pass that files notes has a bound of its own (`bounds.librarianTimeoutMs`, five
 minutes). Hitting it abandons the tidying up and never fails the job — the work is done
 and reported by then, and curation is best-effort.
 

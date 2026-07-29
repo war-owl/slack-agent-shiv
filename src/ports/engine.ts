@@ -102,9 +102,32 @@ export interface EngineSession {
   run(prompt: string, options?: RunOptions): AsyncIterable<EngineEvent>;
 }
 
+/**
+ * The sandbox the engine puts a Job in, as the engine itself has configured it.
+ *
+ * Reported at startup rather than restated in documentation, and read from the adapter
+ * rather than from configuration, because these three values *are* layer 2 of the action
+ * boundary for everything the coworker reaches by shell. A self-hoster who has read
+ * ADR-0002 and wants to know whether their instance actually runs that way should be able
+ * to see it in the startup output, from the module that decided it.
+ */
+export interface SandboxPosture {
+  /** Codex's own word: `workspace-write`, and not `danger-full-access`. */
+  mode: string;
+  /** On, because the work is GitHub, Linear, and the web. */
+  networkEnabled: boolean;
+  /**
+   * Which commands the engine may run. `unrestricted` in v1 — once the credential is the
+   * boundary, per-command rules buy little and cost a lot of tuning.
+   */
+  execPolicy: string;
+}
+
 export interface Engine {
   /** The installed engine version, reported at startup. */
   version(): Promise<string>;
+  /** How the engine sandboxes a Job. Reported at startup; see {@link SandboxPosture}. */
+  readonly sandbox: SandboxPosture;
   startSession(options: SessionOptions): EngineSession;
   /**
    * A Session nobody will ever resume: one prompt, one answer, no identity kept.

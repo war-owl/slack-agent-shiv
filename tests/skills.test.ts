@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { LIBRARIAN_HEADING } from "../src/vault/librarian.ts";
 import {
   credentialConcerns,
@@ -168,6 +168,36 @@ describe("startup", () => {
     const broken = await withSkillsAt(h, above);
 
     await expect(broken.coworker.preflight()).rejects.toThrow(/workspace/i);
+  });
+
+  it("warns, naming the path, when the Skills directory is not there", async () => {
+    const h = await coworkerHarness();
+    const absent = path.join(path.dirname(h.notesDir), "Procedures");
+    const misconfigured = await withSkillsAt(h, absent);
+    // The harness creates whatever it is pointed at, so this is the one arrangement it has
+    // to undo: a configured location that is not there, which is both the clean install and
+    // the typo.
+    await rm(absent, { recursive: true, force: true });
+
+    await misconfigured.coworker.preflight();
+
+    // A warning rather than a refusal, because no Skills yet is the ordinary starting state.
+    // But it names the path, because the *other* thing this looks like is a mistyped one —
+    // and "no Skills yet" for a directory full of them is exactly what "checked at startup
+    // rather than discovered on first use" is meant to prevent.
+    expect(misconfigured.warnings.join("\n")).toContain(absent);
+  });
+
+  it("refuses to run when the Skills directory cannot be read", async () => {
+    const h = await coworkerHarness();
+    await writeSkill(h.skillsDir, "Database access", "Use `$ANALYTICS_DATABASE_URL`.\n");
+    // The layout is right and the procedures are there; the instance simply cannot open the
+    // directory. `readSkills` would report "none yet" and every Skill in there would be
+    // silently ignored — half of a guarantee whose whole content is "readable, not writable".
+    await chmod(h.skillsDir, 0o000);
+    onTestFinished(() => chmod(h.skillsDir, 0o755));
+
+    await expect(h.coworker.preflight()).rejects.toThrow(/cannot be read/i);
   });
 
   it("runs, and says what it found, when the layout is right", async () => {

@@ -4,22 +4,27 @@ import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import {
   Codex,
+  type CodexOptions,
   type CommandExecutionItem,
   type FileChangeItem,
   type McpToolCallItem,
+  type SandboxMode,
   type Thread,
   type ThreadEvent,
   type ThreadItem,
   type ThreadOptions,
 } from "@openai/codex-sdk";
+import { disabledToolsFor } from "../mcp/denylist.ts";
 import type {
   ActivityStatus,
   Engine,
   EngineEvent,
   EngineSession,
   RunOptions,
+  SandboxPosture,
   SessionOptions,
 } from "../ports/engine.ts";
+import type { McpServerConfig } from "../ports/mcp.ts";
 
 /**
  * The Codex adapter — the **only** module in this codebase that imports
@@ -45,7 +50,34 @@ export interface CodexEngineOptions {
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   /** An explicit `codex` binary, when the one on `PATH` is not the one to run. */
   codexPath?: string | undefined;
+  /**
+   * The connectors, which Codex reads as its own MCP configuration (ADR-0005).
+   *
+   * The wrapper is not in the tool path: it does not proxy these calls, it *generates the
+   * configuration that grants them* — including each server's `disabled_tools`, which is
+   * the whole of layer 2. See {@link mcpServerConfig}.
+   */
+  mcpServers?: readonly McpServerConfig[];
 }
+
+/**
+ * How a Job is sandboxed. Stated once, here, because this is the module that configures it.
+ *
+ * `workspace-write` because the agent must write its workspace and the Notes; network on
+ * because the work is Linear, GitHub, and the web; `execpolicy` unrestricted because once
+ * the credential is the boundary, per-command rules buy little and cost a lot of tuning
+ * ([ADR-0002](../../docs/adr/0002-unattended-action-boundary.md)). `danger-full-access`
+ * would give up the filesystem boundary for nothing.
+ */
+const SANDBOX = {
+  // Typed as the SDK's own union rather than as `string`, so that a Codex which renames a
+  // sandbox mode stops this compiling instead of passing an unknown one through.
+  mode: "workspace-write",
+  networkEnabled: true,
+  // Nothing is configured, which is what "unrestricted" means here — Codex applies no
+  // per-command rules unless it is given some, and v1 gives it none.
+  execPolicy: "unrestricted (no rules configured)",
+} satisfies SandboxPosture & { mode: SandboxMode };
 
 /**
  * Asynchronous because the binary is resolved once, up front: v1 runs against
@@ -54,16 +86,23 @@ export interface CodexEngineOptions {
  */
 export async function createCodexEngine(options: CodexEngineOptions): Promise<Engine> {
   const binary = await resolveCodexBinary(options.codexPath);
-  const codex = new Codex(binary.path ? { codexPathOverride: binary.path } : {});
+  const generated = mcpServerConfig(options.mcpServers ?? []);
+  const codex = new Codex({
+    ...(binary.path ? { codexPathOverride: binary.path } : {}),
+    // Flattened by the SDK into repeated `--config key=value` overrides, so the whole
+    // `config.toml` surface is reachable — and so the deny-list this instance generates
+    // reaches the subprocess without a file anybody has to keep in sync.
+    ...(generated === undefined ? {} : { config: generated }),
+  });
 
   const threadOptions = (session: SessionOptions): ThreadOptions => ({
     model: options.model,
     modelReasoningEffort: options.reasoningEffort,
-    // ADR-0002 layer 2: the agent writes in its workspace and the Vault, and
-    // nowhere else. Network is on because the work is GitHub, Linear, and the
-    // web; `execpolicy` is unrestricted in v1.
-    sandboxMode: "workspace-write",
-    networkAccessEnabled: true,
+    // ADR-0002 layer 2, and taken from {@link SANDBOX} rather than restated: startup
+    // *reports* that posture, so a literal here that drifted from it would make the report
+    // describe a sandbox no Job is actually in.
+    sandboxMode: SANDBOX.mode,
+    networkAccessEnabled: SANDBOX.networkEnabled,
     workingDirectory: session.workingDirectory,
     additionalDirectories: [...(session.writableDirectories ?? [])],
     // A Job's workspace is a plain directory, not a checkout.
@@ -72,6 +111,7 @@ export async function createCodexEngine(options: CodexEngineOptions): Promise<En
 
   return {
     version: async () => binary.version,
+    sandbox: SANDBOX,
 
     startSession(session: SessionOptions): EngineSession {
       return codexSession(codex.startThread(threadOptions(session)));
@@ -97,6 +137,43 @@ export async function createCodexEngine(options: CodexEngineOptions): Promise<En
     resumeSession(sessionId: string, session: SessionOptions): EngineSession {
       return codexSession(codex.resumeThread(sessionId, threadOptions(session)));
     },
+  };
+}
+
+/**
+ * The connectors, as `config.toml` overrides — `[mcp_servers.<id>]` and its `disabled_tools`.
+ *
+ * This is where layer 2 of the action boundary actually lands. The wrapper cannot refuse a
+ * tool call (it is not in the path) and cannot inspect one; what it can do is decline to
+ * tell Codex that the tool exists, which is why `disabled_tools` is generated here rather
+ * than checked anywhere.
+ *
+ * Two details that are easy to get wrong and expensive to get wrong:
+ *
+ * - **`bearer_token_env_var`, never the token.** Codex resolves it from its own process
+ *   environment, so the credential is never written into a config value that would end up in
+ *   a `--config` argument — and therefore never in this process's command line, where `ps`
+ *   would show it to every user on the machine.
+ * - **Undefined rather than an empty table** when there are no connectors. Passing
+ *   `mcp_servers = {}` is not the same as passing nothing: it is a value that could shadow a
+ *   self-hoster's own `~/.codex/config.toml` entries, and an instance with no connectors
+ *   configured has no opinion about the ones they added for their own use.
+ */
+function mcpServerConfig(
+  servers: readonly McpServerConfig[],
+): NonNullable<CodexOptions["config"]> | undefined {
+  if (servers.length === 0) return undefined;
+  return {
+    mcp_servers: Object.fromEntries(
+      servers.map((server) => [
+        server.name,
+        {
+          url: server.url,
+          bearer_token_env_var: server.bearerTokenEnvVar,
+          disabled_tools: disabledToolsFor(server),
+        },
+      ]),
+    ),
   };
 }
 

@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { onTestFinished } from "vitest";
-import { BOUND_DEFAULTS, type Config } from "../../src/config.ts";
+import { BOUND_DEFAULTS, type Config, type GitHubAppConfig } from "../../src/config.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
@@ -11,7 +11,14 @@ import {
   type AppMentionEvent,
   type Delivery,
 } from "../../src/slack/mentions.ts";
-import { FakeClock, FakeEngine, FakeInventoryProber, FakeSlack } from "./fakes.ts";
+import {
+  FakeClock,
+  FakeEngine,
+  FakeGitHubApp,
+  FakeGitHubCli,
+  FakeInventoryProber,
+  FakeSlack,
+} from "./fakes.ts";
 import { testTempDir } from "./test-root.ts";
 
 export const BOT_USER_ID = "U0COWORKER";
@@ -19,9 +26,24 @@ export const DEFAULT_THREAD_TS = "1700000000.000100";
 
 export interface HarnessOptions {
   operatingManual?: string;
-  mcpServers?: Config["mcpServers"];
+  /**
+   * Connectors, as configuration names them.
+   *
+   * `pinnedTools` and `disabledTools` default to empty, which is a *failing* instance rather
+   * than a neutral one: an unpinned connector does not start. That is deliberate — a harness
+   * that quietly pinned whatever the fake advertised would make the startup check untestable
+   * by making it unfailable.
+   */
+  mcpServers?: readonly PartialConnector[];
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
   bounds?: Partial<Config["bounds"]>;
+  /**
+   * The GitHub App, as configuration names it. Absent means GitHub is not configured at
+   * all, which is the default and a legitimate way to run this.
+   */
+  github?: Partial<GitHubAppConfig>;
+  /** The credential store preflight resolves named credentials out of. */
+  env?: NodeJS.ProcessEnv;
   /**
    * Reuse an existing temporary root instead of making a new one. This is how a
    * process restart is modelled: same directories on disk, everything in memory gone.
@@ -37,6 +59,15 @@ export interface HarnessOptions {
   skillsDir?: string;
 }
 
+/** A connector as a test writes it: the pin and the extra deny-list are optional. */
+export type PartialConnector = Omit<
+  Config["mcpServers"][number],
+  "pinnedTools" | "disabledTools"
+> & {
+  pinnedTools?: readonly string[];
+  disabledTools?: readonly string[];
+};
+
 export interface CoworkerHarness {
   /** The temporary directory holding everything this instance keeps on disk. */
   root: string;
@@ -51,6 +82,8 @@ export interface CoworkerHarness {
   engine: FakeEngine;
   sessions: SessionStore;
   inventoryProber: FakeInventoryProber;
+  github: FakeGitHubApp;
+  gh: FakeGitHubCli;
   /** What a self-hoster would see in the instance's output. */
   logs: string[];
   warnings: string[];
@@ -104,6 +137,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
   );
 
   const config: Config = {
+    source: "the test harness",
     slack: { botToken: "xoxb-test", appToken: "xapp-test" },
     notesDir,
     skillsDir,
@@ -115,7 +149,21 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     // its own numbers would pass while the numbers a self-hoster actually runs with
     // went untested.
     bounds: { ...BOUND_DEFAULTS, ...options.bounds },
-    mcpServers: options.mcpServers ?? [],
+    github:
+      options.github === undefined
+        ? undefined
+        : {
+            appId: "1234567",
+            privateKeyPem: "-----BEGIN RSA PRIVATE KEY-----\nnot-a-real-key\n-----END…",
+            privateKeyPath: path.join(root, "app.pem"),
+            repositories: [],
+            ...options.github,
+          },
+    mcpServers: (options.mcpServers ?? []).map((server) => ({
+      pinnedTools: [],
+      disabledTools: [],
+      ...server,
+    })),
   };
 
   // A real file, like the Vault: "the mapping survives a restart" is a claim about
@@ -128,6 +176,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
   const slack = new FakeSlack(clock);
   const engine = new FakeEngine();
   const inventoryProber = new FakeInventoryProber();
+  const github = new FakeGitHubApp();
+  const gh = new FakeGitHubCli();
   /** What a self-hoster would see at startup and in the instance's output. */
   const logs: string[] = [];
   const warnings: string[] = [];
@@ -139,6 +189,11 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     clock,
     sessions,
     inventoryProber,
+    github,
+    gh,
+    // Not the real environment: a startup check on a named credential must not pass or fail
+    // because of what happens to be in the shell that ran the tests.
+    env: options.env ?? {},
     log: {
       info: (message) => logs.push(message),
       warn: (message) => {
@@ -204,6 +259,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     engine,
     sessions,
     inventoryProber,
+    github,
+    gh,
     logs,
     warnings,
     coworker,
