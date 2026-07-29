@@ -4,7 +4,10 @@
 
 Skills are how this project gets non-MCP capability without writing a connector. [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md) says connectors are MCP configuration; a Skill is the other route — the shell plus a written procedure — chosen deliberately where standing up an MCP server is not worth it.
 
+**This ticket moved onto the critical path.** [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) made GitHub a Skill, so [build/09](09-github-connector.md) cannot start until the mechanism here exists. Skills are no longer the escape hatch for odd cases — they carry one of the project's two headline connectors, and the read-but-not-write guarantee below is what keeps a "do not merge" instruction from being editable by the thing it constrains.
+
 **Blocked by:** 07 — The Vault
+**Blocks:** 09 — GitHub as a Skill over `gh`
 
 **Status:** ready-for-agent, *after the verification block below*
 
@@ -37,4 +40,4 @@ Do **not** implement this as a post-Job hash check and revert. That is detection
 
 **Skills are not memory.** A Skill is a standing procedure a human maintains. What the coworker learns by *using* one is an ordinary Note, written by the Librarian in the normal way. Keeping these separate is what makes the authorship rule enforceable — if the coworker needed to append to Skills to do its job, the constraint would be relitigated within a week.
 
-**This does not reopen [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md).** Connectors are still MCP configuration. A Skill is not a connector: there is no tool surface, no inventory to pin, and no normalisation. It is a written procedure plus the shell the coworker already has.
+~~**This does not reopen [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md).**~~ **It did, and [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) is the amendment.** The original note said a Skill is not a connector — no tool surface, no inventory to pin, no normalisation — and then GitHub became one anyway, because repository selection could not be expressed inside the MCP shape. The mechanical description still holds: a Skill is a written procedure plus the shell. What was wrong was the conclusion that this keeps Skills and connectors in separate categories. The project now has two connector routes, and the choice between them turns on whether the boundary needs to live in the credential (Skill) or in the tool surface (MCP).
