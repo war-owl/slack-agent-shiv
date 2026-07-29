@@ -1,5 +1,6 @@
 import type { Mention } from "../coworker.ts";
 import { rootForPrompt, type RootNote } from "../vault/root.ts";
+import { skillsForPrompt, type Skill } from "../vault/skills.ts";
 import { taskIn } from "./request.ts";
 
 /**
@@ -31,7 +32,17 @@ export interface PromptContext {
    */
   queuedDuringPreviousJob: boolean;
   /** Where the Vault is. The coworker cannot look things up without being told. */
-  vaultDir: string;
+  notesDir: string;
+  /** Where the Skills are — the read-only half of the Vault. */
+  skillsDir: string;
+  /**
+   * The Skills that exist, by title and path.
+   *
+   * Listed rather than merely located, and never inlined. See `skillsForPrompt` in
+   * `vault/skills.ts`: a path alone is something to remember to check, a list of titles is
+   * a reason to look now, and the full contents would be a second operating manual.
+   */
+  skills: readonly Skill[];
   /**
    * The Vault's Root note, already stripped to links.
    *
@@ -79,9 +90,15 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
  */
 function vaultSection(context: PromptContext): string[] {
   return [
-    `Your Notes — everything you have ever written down — are in \`${context.vaultDir}\`.`,
+    `Your Notes — everything you have ever written down — are in \`${context.notesDir}\`.`,
     "",
     rootForPrompt(context.root),
+    "",
+    // After the Notes and before the request, in the same breath as the rest of the Vault:
+    // a Skill is a sibling of the Notes on disk and the same kind of thing to consult
+    // before starting. What separates them is who may write them, which is in the section
+    // itself rather than implied by where it sits.
+    skillsForPrompt(context.skillsDir, context.skills),
   ];
 }
 

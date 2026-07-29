@@ -3,6 +3,12 @@ import type { Engine } from "./ports/engine.ts";
 import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
 import { readRootNote, rootNoteConcerns, ROOT_NOTE_FILENAME } from "./vault/root.ts";
+import {
+  credentialConcerns,
+  proceduresIn,
+  readSkills,
+  skillsLocationProblems,
+} from "./vault/skills.ts";
 
 /**
  * What the instance checks before it accepts its first mention.
@@ -48,13 +54,15 @@ export async function runPreflight(deps: {
   // people at different moments. A per-Job warning reaches whoever is watching the logs
   // while a Job runs; this reaches the person who has just edited their Vault and
   // restarted, which is exactly when a Root note full of prose gets written.
-  const root = await readRootNote(deps.config.vaultDir);
+  const root = await readRootNote(deps.config.notesDir);
   deps.log.info(
     root.exists
-      ? `Vault: ${deps.config.vaultDir} — Root note has ${root.links.length} hub link(s)`
-      : `Vault: ${deps.config.vaultDir} — no ${ROOT_NOTE_FILENAME} yet, so nothing is on the map`,
+      ? `Vault: ${deps.config.notesDir} — Root note has ${root.links.length} hub link(s)`
+      : `Vault: ${deps.config.notesDir} — no ${ROOT_NOTE_FILENAME} yet, so nothing is on the map`,
   );
-  for (const concern of rootNoteConcerns(root, deps.config.vaultDir)) deps.log.warn(concern);
+  for (const concern of rootNoteConcerns(root, deps.config.notesDir)) deps.log.warn(concern);
+
+  await checkSkills(deps);
 
   for (const server of deps.config.mcpServers) {
     const inventory = await deps.inventoryProber.probe(server);
@@ -75,4 +83,50 @@ export async function runPreflight(deps: {
       );
     }
   }
+}
+
+/**
+ * The Skills location, and whether it can keep the one promise it makes.
+ *
+ * **The location check throws.** Everything else in this function is a report, because
+ * everything else in preflight describes an instance that will work. A Skills directory
+ * the engine can write to is different in kind: the instance runs perfectly, the
+ * documentation says Skills are human-authored, and they are not. ADR-0004's amendment is
+ * the only thing standing between a poisoned Job and a command running in a different
+ * Thread with a different audience, and it is enforced by nothing except this directory
+ * being off the writable list — so an arrangement that voids it must not start.
+ *
+ * The credential scan only warns. That asymmetry is argued in `vault/skills.ts`: one is
+ * the project failing to deliver its own guarantee, the other is the self-hoster's
+ * credential in the self-hoster's vault.
+ */
+async function checkSkills(deps: { config: Config; log: Logger }): Promise<void> {
+  const problems = await skillsLocationProblems({
+    skillsDir: deps.config.skillsDir,
+    notesDir: deps.config.notesDir,
+    workspaceRoot: deps.config.workspaceRoot,
+  });
+  if (problems.length > 0) {
+    throw new Error(
+      "The Skills directory is not in a place where it can stay read-only to the " +
+        "coworker, so the instance is stopping rather than running with an authorship " +
+        `rule that is not in force:\n${problems.map((problem) => `  - ${problem}`).join("\n")}\n\n` +
+        "Skills must be a sibling of your Notes directory, both under the directory you " +
+        "open in Obsidian, and not in a temporary directory. See docs/skills.md.",
+    );
+  }
+
+  // Counted as procedures rather than as files, so the README that explains how to write
+  // one is not reported as one — it is also what the coworker is not told about.
+  const procedures = proceduresIn(await readSkills(deps.config.skillsDir));
+  deps.log.info(
+    procedures.length === 0
+      ? `Skills: ${deps.config.skillsDir} — none yet, and the coworker is told so. There are ` +
+          "starter Skills in assets/skills (a README explaining the rules, and a worked " +
+          "read-only database example) to copy there."
+      : `Skills: ${deps.config.skillsDir} — ${procedures.length}, read-only to the coworker: ` +
+          procedures.map((skill) => skill.path).join(", "),
+  );
+
+  for (const concern of await credentialConcerns(deps.config.skillsDir)) deps.log.warn(concern);
 }

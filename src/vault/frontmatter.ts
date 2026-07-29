@@ -76,7 +76,7 @@ export function splitFrontmatter(contents: string): { lines: string[]; body: str
  * frontmatter would be losing the thing for the label on it.
  */
 export async function stampChangedNotes(
-  vaultDir: string,
+  notesDir: string,
   changes: readonly VaultChange[],
   provenance: NoteProvenance,
 ): Promise<{ stamped: number; failures: { path: string; error: unknown }[] }> {
@@ -85,7 +85,7 @@ export async function stampChangedNotes(
 
   for (const change of changes) {
     if (change.kind === "delete" || !change.path.endsWith(".md")) continue;
-    const file = path.join(vaultDir, ...change.path.split("/"));
+    const file = path.join(notesDir, ...change.path.split("/"));
     try {
       const contents = await readFile(file, "utf8");
       const updated = withProvenance(contents, provenance);

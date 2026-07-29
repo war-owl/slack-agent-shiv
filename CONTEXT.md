@@ -30,9 +30,11 @@ A Job is normally one Turn. The distinction matters only at failure, which is ex
 
 ## Vault
 
-The linked web of Markdown files the coworker reads and writes, and which a human may open in Obsidian and edit directly. The only channel by which anything crosses between Sessions, and **the coworker's only memory** — there is no separate memory store.
+The linked web of Markdown files the coworker reads, and which a human may open in Obsidian and edit directly. The only channel by which anything crosses between Sessions, and **the coworker's only memory** — there is no separate memory store.
 
 Wikilinks are structure, not decoration: the Vault is a graph the coworker traverses, not a folder it scans.
+
+It has **two halves, divided by who may write them**: its [Notes](#note), which the coworker writes, and its [Skills](#skill), which only a human writes. Both are Markdown, both are in the same Obsidian vault, and a wikilink crosses freely between them — the division is authorship, not subject matter.
 
 ## Note
 

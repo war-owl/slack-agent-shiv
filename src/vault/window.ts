@@ -92,7 +92,7 @@ export function trackVaultWindows(): VaultWindows {
 }
 
 export interface VaultWindowDeps {
-  vaultDir: string;
+  notesDir: string;
   log: Logger;
   clock: Clock;
   thread: Thread;
@@ -120,16 +120,16 @@ export async function openVaultWindow(deps: VaultWindowDeps): Promise<VaultWindo
   // handed the Vault as a writable directory before the first Note is written — so this
   // would otherwise be a Job whose memory has no home. Creating an empty directory is not
   // writing in it: the Vault stays the human's.
-  await ensureVault(deps.vaultDir);
+  await ensureVault(deps.notesDir);
 
   const claim = deps.windows.open();
-  let baseline: VaultSnapshot = await snapshotVault(deps.vaultDir);
+  let baseline: VaultSnapshot = await snapshotVault(deps.notesDir);
 
   return {
     async settle(audit: AuditTrail): Promise<void> {
       const before = baseline;
       try {
-        const seen = await snapshotVault(deps.vaultDir);
+        const seen = await snapshotVault(deps.notesDir);
         const changes = changesBetween(before, seen).filter(isNotBookkeeping);
         // The baseline advances even when nothing changed, so that the next accounting
         // reports what happened *since here* rather than repeating this window's findings.
@@ -148,7 +148,7 @@ export async function openVaultWindow(deps: VaultWindowDeps): Promise<VaultWindo
           );
         }
 
-        const stamping = await stampChangedNotes(deps.vaultDir, changes, {
+        const stamping = await stampChangedNotes(deps.notesDir, changes, {
           thread: deps.thread,
           jobId: deps.jobId,
           at: deps.clock.now(),
@@ -168,7 +168,7 @@ export async function openVaultWindow(deps: VaultWindowDeps): Promise<VaultWindo
         // stands — rather than the coworker's write followed by the wrapper's stamp.
         let recorded = changes;
         if (stamping.stamped > 0) {
-          const stamped = await snapshotVault(deps.vaultDir);
+          const stamped = await snapshotVault(deps.notesDir);
           // Narrowed to the files already decided on. Re-diffing can otherwise pick up
           // something that changed in the moment since — another Job's stamp landing, most
           // likely — and report it here as though this accounting had found it.
@@ -179,7 +179,7 @@ export async function openVaultWindow(deps: VaultWindowDeps): Promise<VaultWindo
         for (const write of vaultWrites(recorded, attributable)) audit.append(write);
       } catch (error) {
         deps.log.warn(
-          `Could not read the Vault at ${deps.vaultDir} to see what changed: ` +
+          `Could not read the Vault at ${deps.notesDir} to see what changed: ` +
             `${reasonFor(error)}. Any Notes written during Job ${deps.jobId} are ` +
             "unrecorded in the thread.",
         );

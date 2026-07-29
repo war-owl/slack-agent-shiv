@@ -41,10 +41,30 @@ every thread starts over as if it had never spoken to you.
 
 ## Its memory is a folder of Markdown
 
-Point `VAULT_DIR` at a directory — an Obsidian vault, if you use one — and that is
+Point `NOTES_DIR` at a directory — an Obsidian vault, if you use one — and that is
 where everything the coworker learns goes. **There is no other memory**: no hidden
 store, no embedding index, nothing it believes that you cannot open in a text editor.
 Edit a Note by hand and it respects your edit; delete one and the belief is gone.
+
+The vault has two halves, and the split is a boundary rather than an arrangement:
+
+```
+vault/
+  Notes/     the coworker reads and writes these — its memory
+  Skills/    procedures you write for it, which it reads and cannot write
+```
+
+A **Skill** is how you teach it to do something without writing code: how to reach the
+analytics replica, which command pulls the weekly export, what the output means. An
+ordinary Markdown file, edited in the same Obsidian. It is told what Skills exist at the
+start of every job and reads the one that applies.
+
+It **cannot edit them**, and that is the point — a Skill it could rewrite would be a way
+for something it read in one thread to put a command in front of a job in another. When it
+finds a procedure has drifted it says so in the thread and writes a Note about it; the fix
+is yours. A Skill names an environment variable where it needs a credential and never
+contains one, and anything reached this way has **the credential as its only boundary**,
+so scope it accordingly — see [docs/skills.md](docs/skills.md).
 
 At the end of each job it decides for itself whether anything was worth remembering.
 **Usually the answer is no** — a question answered is not something learned — and

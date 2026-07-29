@@ -23,11 +23,11 @@ function recordsIn(texts: string[]): string[] {
 }
 
 /** Every file in the Vault, relative and sorted — what a human would see in Obsidian. */
-async function notesIn(vaultDir: string): Promise<string[]> {
-  const entries = await readdir(vaultDir, { recursive: true, withFileTypes: true });
+async function notesIn(notesDir: string): Promise<string[]> {
+  const entries = await readdir(notesDir, { recursive: true, withFileTypes: true });
   return entries
     .filter((entry) => entry.isFile())
-    .map((entry) => path.relative(vaultDir, path.join(entry.parentPath, entry.name)))
+    .map((entry) => path.relative(notesDir, path.join(entry.parentPath, entry.name)))
     .sort();
 }
 
@@ -36,7 +36,7 @@ describe("a Note the coworker writes", () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
       await writeFile(
-        path.join(h.vaultDir, "Deploys.md"),
+        path.join(h.notesDir, "Deploys.md"),
         "We ship on green. [[Atlas]] deploys on Fridays.\n",
         "utf8",
       );
@@ -60,11 +60,11 @@ describe("a Note the coworker writes", () => {
     // The gap build/04 left open on purpose: a Note written by shell redirection appears
     // in no file-change event, and no table of command patterns would recognise this.
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "Runbook.md"), "Restart the worker.\n", "utf8");
+      await writeFile(path.join(h.notesDir, "Runbook.md"), "Restart the worker.\n", "utf8");
       return [
         {
           type: "command",
-          command: `/bin/zsh -lc "echo 'Restart the worker.' > ${h.vaultDir}/Runbook.md"`,
+          command: `/bin/zsh -lc "echo 'Restart the worker.' > ${h.notesDir}/Runbook.md"`,
           status: "completed",
           output: "",
           exitCode: 0,
@@ -84,13 +84,13 @@ describe("a Note the coworker writes", () => {
   it("records when it was written and which Thread and Job wrote it", async () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "Atlas.md"), "The payments rewrite.\n", "utf8");
+      await writeFile(path.join(h.notesDir, "Atlas.md"), "The payments rewrite.\n", "utf8");
       return [{ type: "message", text: "Done." }];
     };
 
     await h.mention({ eventId: "Ev_ATLAS" });
 
-    const note = await readFile(path.join(h.vaultDir, "Atlas.md"), "utf8");
+    const note = await readFile(path.join(h.notesDir, "Atlas.md"), "utf8");
     expect(note).toContain(`modified: ${new Date(h.clock.now()).toISOString()}`);
     expect(note).toContain(`thread: C_GENERAL/${DEFAULT_THREAD_TS}`);
     expect(note).toContain("job: Ev_ATLAS");
@@ -101,20 +101,20 @@ describe("a Note the coworker writes", () => {
   it("is rewritten in place when the coworker learns something contradictory", async () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "Deploys.md"), "We ship on Fridays.\n", "utf8");
+      await writeFile(path.join(h.notesDir, "Deploys.md"), "We ship on Fridays.\n", "utf8");
       return [{ type: "message", text: "Noted." }];
     };
     await h.mention();
 
     h.engine.script = async () => {
-      const file = path.join(h.vaultDir, "Deploys.md");
+      const file = path.join(h.notesDir, "Deploys.md");
       const existing = await readFile(file, "utf8");
       await writeFile(file, existing.replace("We ship on Fridays.", "We ship on green."), "utf8");
       return [{ type: "message", text: "Corrected that." }];
     };
     await h.mention();
 
-    const note = await readFile(path.join(h.vaultDir, "Deploys.md"), "utf8");
+    const note = await readFile(path.join(h.notesDir, "Deploys.md"), "utf8");
     // The current belief, not a log of beliefs: the old claim is gone rather than
     // appended under a heading, so divergence surfaces to whoever reads the Vault.
     expect(note).toContain("We ship on green.");
@@ -130,20 +130,20 @@ describe("a Note the coworker writes", () => {
     const h = await coworkerHarness();
     // Their file, their formatting, no frontmatter — as if written in Obsidian.
     const theirs = "# Deploys\n\nWe ship when *I* say so.\n";
-    await writeFile(path.join(h.vaultDir, "Deploys.md"), theirs, "utf8");
+    await writeFile(path.join(h.notesDir, "Deploys.md"), theirs, "utf8");
 
     await h.mention();
 
-    expect(await readFile(path.join(h.vaultDir, "Deploys.md"), "utf8")).toBe(theirs);
+    expect(await readFile(path.join(h.notesDir, "Deploys.md"), "utf8")).toBe(theirs);
     // Not re-attributed to the coworker, and not reported as something it did.
     expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
   });
 
   it("records a deletion, and what the belief used to say", async () => {
     const h = await coworkerHarness();
-    await writeFile(path.join(h.vaultDir, "Wrong.md"), "Asha owns billing.\n", "utf8");
+    await writeFile(path.join(h.notesDir, "Wrong.md"), "Asha owns billing.\n", "utf8");
     h.engine.script = async () => {
-      await rm(path.join(h.vaultDir, "Wrong.md"));
+      await rm(path.join(h.notesDir, "Wrong.md"));
       return [{ type: "message", text: "That was wrong, so I removed it." }];
     };
 
@@ -152,7 +152,7 @@ describe("a Note the coworker writes", () => {
     const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
     expect(record).toMatch(/deleted a note/i);
     expect(record).toContain("- Asha owns billing.");
-    expect(await notesIn(h.vaultDir)).toEqual([]);
+    expect(await notesIn(h.notesDir)).toEqual([]);
   });
 
   it("does not claim a change it cannot prove was its own", async () => {
@@ -165,7 +165,7 @@ describe("a Note the coworker writes", () => {
     const releaseFirst = deferred();
     h.engine.script = async function* ({ prompt }) {
       if (prompt.includes("write it down")) {
-        await writeFile(path.join(h.vaultDir, "Shared.md"), "Ship on green.\n", "utf8");
+        await writeFile(path.join(h.notesDir, "Shared.md"), "Ship on green.\n", "utf8");
         yield { type: "message", text: "Written down." };
         return;
       }
@@ -189,7 +189,7 @@ describe("a Note the coworker writes", () => {
       .filter((text) => text.includes("Shared.md"));
     expect(hedged).toHaveLength(1);
     expect(hedged[0]).toMatch(/may be its change/);
-    const note = await readFile(path.join(h.vaultDir, "Shared.md"), "utf8");
+    const note = await readFile(path.join(h.notesDir, "Shared.md"), "utf8");
     expect(note).toContain("modified:");
     expect(note).not.toContain("job:");
     expect(note).not.toContain("thread:");
@@ -201,8 +201,8 @@ describe("a Note the coworker writes", () => {
     h.engine.script = async () => {
       // What the app rewrites whenever a human so much as scrolls. Reporting it would be
       // claiming credit for something the coworker never touched.
-      await mkdir(path.join(h.vaultDir, ".obsidian"), { recursive: true });
-      await writeFile(path.join(h.vaultDir, ".obsidian", "workspace.json"), "{}", "utf8");
+      await mkdir(path.join(h.notesDir, ".obsidian"), { recursive: true });
+      await writeFile(path.join(h.notesDir, ".obsidian", "workspace.json"), "{}", "utf8");
       return [{ type: "message", text: "Done." }];
     };
 
@@ -215,7 +215,7 @@ describe("a Note the coworker writes", () => {
 describe("the Root note", () => {
   const withRoot = async (contents: string) => {
     const h = await coworkerHarness();
-    await writeFile(path.join(h.vaultDir, "Root.md"), contents, "utf8");
+    await writeFile(path.join(h.notesDir, "Root.md"), contents, "utf8");
     return h;
   };
 
@@ -228,7 +228,7 @@ describe("the Root note", () => {
     expect(prompt).toContain("[[Asha Raman]] — designer");
     expect(prompt).toContain("[[Atlas]] — the payments rewrite");
     // And where to go from there, or the map names doors it cannot open.
-    expect(prompt).toContain(h.vaultDir);
+    expect(prompt).toContain(h.notesDir);
   });
 
   it("drops anything that is not a link, and says what it dropped", async () => {
@@ -310,15 +310,15 @@ describe("the Root note", () => {
 
 describe("the Librarian's closing pass", () => {
   /** A pass that files one Note, as one would after learning something durable. */
-  const filesANote = (vaultDir: string, file: string, contents: string) => async () => {
-    await mkdir(path.dirname(path.join(vaultDir, file)), { recursive: true });
-    await writeFile(path.join(vaultDir, file), contents, "utf8");
+  const filesANote = (notesDir: string, file: string, contents: string) => async () => {
+    await mkdir(path.dirname(path.join(notesDir, file)), { recursive: true });
+    await writeFile(path.join(notesDir, file), contents, "utf8");
     return [{ type: "message", text: `Filed ${file}.` } as const];
   };
 
   it("is a separate call, given the Job's transcript and the Root note", async () => {
     const h = await coworkerHarness();
-    await writeFile(path.join(h.vaultDir, "Root.md"), "- [[Atlas]] — payments\n", "utf8");
+    await writeFile(path.join(h.notesDir, "Root.md"), "- [[Atlas]] — payments\n", "utf8");
     h.engine.script = () => [
       { type: "command", command: "rg 'deploy' docs", status: "completed", output: "found", exitCode: 0 },
       { type: "message", text: "We deploy from main." },
@@ -349,7 +349,7 @@ describe("the Librarian's closing pass", () => {
 
     // Writing nothing is the expected outcome, not a failure to try: a throwaway
     // question must not leave a Note behind.
-    expect(await notesIn(h.vaultDir)).toEqual([]);
+    expect(await notesIn(h.notesDir)).toEqual([]);
     expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
   });
 
@@ -357,14 +357,14 @@ describe("the Librarian's closing pass", () => {
     const h = await coworkerHarness();
     h.engine.script = () => [{ type: "message", text: "Deploys go out from main, on green." }];
     h.engine.librarianScript = filesANote(
-      h.vaultDir,
+      h.notesDir,
       "Deploys.md",
       "Deploys go out from main, on green. [[Atlas]]\n",
     );
 
     await h.mention();
 
-    expect(await notesIn(h.vaultDir)).toEqual(["Deploys.md"]);
+    expect(await notesIn(h.notesDir)).toEqual(["Deploys.md"]);
     const texts = h.slack.textsIn(DEFAULT_THREAD_TS);
     expect(texts).toHaveLength(3);
     // The answer goes out *before* the tidying up, so nobody waits on curation — a pass
@@ -457,7 +457,7 @@ describe("the Librarian's closing pass", () => {
 
   it("carries what one Thread learned into another, through the Vault and only the Vault", async () => {
     const h = await coworkerHarness();
-    h.engine.librarianScript = filesANote(h.vaultDir, "Root.md", "- [[Deploys]] — how we ship\n");
+    h.engine.librarianScript = filesANote(h.notesDir, "Root.md", "- [[Deploys]] — how we ship\n");
     await h.mention();
 
     h.engine.librarianScript = () => [{ type: "message", text: "Nothing new." } as const];

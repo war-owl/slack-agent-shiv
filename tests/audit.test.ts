@@ -29,12 +29,12 @@ describe("the audit record of a Write", () => {
       // contents rather than from this event (`vault/snapshot.ts`). The event is still
       // emitted, because a real engine emits it — and it is deliberately not what the
       // record is made from.
-      await mkdir(path.join(h.vaultDir, "people"), { recursive: true });
-      await writeFile(path.join(h.vaultDir, "people", "asha.md"), "Designer on Atlas.\n", "utf8");
+      await mkdir(path.join(h.notesDir, "people"), { recursive: true });
+      await writeFile(path.join(h.notesDir, "people", "asha.md"), "Designer on Atlas.\n", "utf8");
       return [
         {
           type: "file-change",
-          changes: [{ path: path.join(h.vaultDir, "people", "asha.md"), kind: "add" }],
+          changes: [{ path: path.join(h.notesDir, "people", "asha.md"), kind: "add" }],
           status: "completed",
         },
         { type: "message", text: "Filed what I learned about Asha." },
@@ -90,10 +90,10 @@ describe("the audit record of a Write", () => {
 
   it("appears in the order the Writes happened, the Vault's own changes last", async () => {
     const h = await coworkerHarness();
-    await writeFile(path.join(h.vaultDir, "stale.md"), "Out of date.\n", "utf8");
+    await writeFile(path.join(h.notesDir, "stale.md"), "Out of date.\n", "utf8");
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "atlas.md"), "The payments rewrite.\n", "utf8");
-      await rm(path.join(h.vaultDir, "stale.md"));
+      await writeFile(path.join(h.notesDir, "atlas.md"), "The payments rewrite.\n", "utf8");
+      await rm(path.join(h.notesDir, "stale.md"));
       return [
         {
           type: "command",
@@ -387,7 +387,7 @@ describe("when the record itself cannot be posted", () => {
   it("finishes the Job and says the trail has a hole in it", async () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "asha.md"), "Designer on Atlas.\n", "utf8");
+      await writeFile(path.join(h.notesDir, "asha.md"), "Designer on Atlas.\n", "utf8");
       // The status message is already posted, so this refusal lands on the record.
       h.slack.failNextPost = new Error("slack is down");
       return [{ type: "message", text: "Filed what I learned about Asha." }];

@@ -20,6 +20,7 @@ import { startJobStatus, type JobStatus } from "./reporter/status.ts";
 import { threadKey, type Thread } from "./thread.ts";
 import { runLibrarianPass } from "./vault/librarian.ts";
 import { NO_ROOT_NOTE, readRootNote, rootNoteConcerns, type RootNote } from "./vault/root.ts";
+import { readSkills } from "./vault/skills.ts";
 import {
   openVaultWindow,
   trackVaultWindows,
@@ -299,7 +300,7 @@ async function runJob(
       thread: mention.thread,
       scope: await writeScope({
         workspaceDir: workingDirectory,
-        vaultDir: deps.config.vaultDir,
+        notesDir: deps.config.notesDir,
         servers: deps.config.mcpServers,
       }),
     });
@@ -308,7 +309,7 @@ async function runJob(
     // about this Job is the difference between here and afterwards, so a window opened
     // late would attribute the coworker's own earlier Notes to whatever ran next.
     vault = await openVaultWindow({
-      vaultDir: deps.config.vaultDir,
+      notesDir: deps.config.notesDir,
       log: deps.log,
       clock: deps.clock,
       thread: mention.thread,
@@ -318,13 +319,23 @@ async function runJob(
 
     // The map, handed over rather than asked for — and stripped to links on the way in,
     // because this is the one file that reaches every Job in every Thread (ADR-0004).
-    root = await readRootNote(deps.config.vaultDir);
-    for (const concern of rootNoteConcerns(root, deps.config.vaultDir)) deps.log.warn(concern);
+    root = await readRootNote(deps.config.notesDir);
+    for (const concern of rootNoteConcerns(root, deps.config.notesDir)) deps.log.warn(concern);
+
+    // Read fresh each Job rather than at startup, because a human edits these in Obsidian
+    // while the instance is running and a Skill added an hour ago is a Skill this Job
+    // should follow.
+    const skills = await readSkills(deps.config.skillsDir);
 
     const recorded = await deps.sessions.get(mention.thread);
     const session = openSession(deps, mention.thread, recorded?.id, {
       workingDirectory,
-      writableDirectories: [deps.config.vaultDir],
+      // The Notes and nothing else. **`skillsDir` must never appear here** — that omission
+      // is the whole of ADR-0004's authorship rule for Skills, and adding it would make
+      // the coworker able to rewrite the procedures that constrain it without anything
+      // else in this codebase failing. `preflight.ts` refuses to start an instance whose
+      // Skills sit inside this directory for the same reason.
+      writableDirectories: [deps.config.notesDir],
     });
     const turns = trackTurnDurability({
       sessions: deps.sessions,
@@ -340,7 +351,9 @@ async function runJob(
       // telling it that it interrupted something would be telling it a false thing.
       queuedDuringPreviousJob:
         "waited" in acknowledgement && acknowledgement.waited.kind === "job-ahead",
-      vaultDir: deps.config.vaultDir,
+      notesDir: deps.config.notesDir,
+      skillsDir: deps.config.skillsDir,
+      skills,
       root,
     });
 
@@ -500,7 +513,7 @@ async function tidyUp(
       signal: job.signal,
     },
     {
-      vaultDir: deps.config.vaultDir,
+      notesDir: deps.config.notesDir,
       workingDirectory: job.workspaceDir,
       root: job.root,
       request: mention.text,

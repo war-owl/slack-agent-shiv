@@ -99,12 +99,12 @@ export interface WriteScope {
  */
 export async function writeScope(input: {
   workspaceDir: string;
-  vaultDir: string;
+  notesDir: string;
   servers: readonly McpServerConfig[];
 }): Promise<WriteScope> {
   return {
     workspace: await scopedDirectory(input.workspaceDir),
-    vault: await scopedDirectory(input.vaultDir),
+    vault: await scopedDirectory(input.notesDir),
     writeTools: new Map(
       input.servers.map((server) => [server.name, new Set(server.writeTools)] as const),
     ),

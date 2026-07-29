@@ -31,7 +31,7 @@ import path from "node:path";
  * times a session. `.git` and `.trash` are the same story: real files, none of them a
  * belief.
  */
-const NOT_CONTENT = new Set([".git", ".obsidian", ".trash", "node_modules"]);
+export const NOT_CONTENT = new Set([".git", ".obsidian", ".trash", "node_modules"]);
 
 /**
  * How much of a file is read for diffing.
@@ -98,8 +98,8 @@ export interface VaultChange {
  * directory is not writing in it: the Vault stays the human's, and this is the same
  * courtesy as creating the workspace.
  */
-export async function ensureVault(vaultDir: string): Promise<void> {
-  await mkdir(vaultDir, { recursive: true });
+export async function ensureVault(notesDir: string): Promise<void> {
+  await mkdir(notesDir, { recursive: true });
 }
 
 /**
@@ -109,9 +109,9 @@ export async function ensureVault(vaultDir: string): Promise<void> {
  * against a fresh instance is the ordinary case, and it is also the one that creates the
  * directory.
  */
-export async function snapshotVault(vaultDir: string): Promise<VaultSnapshot> {
+export async function snapshotVault(notesDir: string): Promise<VaultSnapshot> {
   const files = new Map<string, FileState>();
-  await walk(vaultDir, vaultDir, files);
+  await walk(notesDir, notesDir, files);
   return { files };
 }
 
@@ -151,7 +151,7 @@ export function changesBetween(before: VaultSnapshot, after: VaultSnapshot): Vau
 }
 
 async function walk(
-  vaultDir: string,
+  notesDir: string,
   directory: string,
   into: Map<string, FileState>,
 ): Promise<void> {
@@ -170,12 +170,12 @@ async function walk(
     if (NOT_CONTENT.has(entry.name)) continue;
 
     if (entry.isDirectory()) {
-      await walk(vaultDir, full, into);
+      await walk(notesDir, full, into);
       continue;
     }
 
     if (entry.isFile()) {
-      into.set(relative(vaultDir, full), await stateOf(full));
+      into.set(relative(notesDir, full), await stateOf(full));
       continue;
     }
 
@@ -186,7 +186,7 @@ async function walk(
     // linked *directory* is not: it can leave the Vault, and it can point at its own
     // parent, which is a snapshot that never finishes.
     if (entry.isSymbolicLink() && (await pointsAtAFile(full))) {
-      into.set(relative(vaultDir, full), await stateOf(full));
+      into.set(relative(notesDir, full), await stateOf(full));
     }
   }
 }
@@ -225,8 +225,8 @@ async function stateOf(file: string): Promise<FileState> {
   }
 }
 
-function relative(vaultDir: string, file: string): string {
-  return path.relative(vaultDir, file).split(path.sep).join("/");
+function relative(notesDir: string, file: string): string {
+  return path.relative(notesDir, file).split(path.sep).join("/");
 }
 
 /**

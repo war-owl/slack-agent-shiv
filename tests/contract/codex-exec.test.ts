@@ -8,7 +8,9 @@ import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
 import { createCodexEngine } from "../../src/engine/codex.ts";
 import type { Engine, EngineEvent } from "../../src/ports/engine.ts";
 import { changesBetween, snapshotVault } from "../../src/vault/snapshot.ts";
+import { readSkills, skillsForPrompt } from "../../src/vault/skills.ts";
 import { writeScope, writesIn, type Write } from "../../src/writes/classify.ts";
+import { testTempDir } from "../support/test-root.ts";
 
 /**
  * The contract seam.
@@ -234,7 +236,10 @@ describe("the real engine", () => {
    * against the real thing.
    */
   it("writes into the Vault outside its workspace, and is recorded once from the Vault", async () => {
-    const vault = path.join(workspace, "..", `vault-${path.basename(workspace)}`);
+    // Outside `$TMPDIR`, or the first half of what this test claims is untestable — a
+    // write there succeeds on the temp-directory grant whether `additionalDirectories`
+    // works or not. See {@link testTempDir}.
+    const vault = path.join(await testTempDir("vault-"), "Notes");
     await mkdir(vault, { recursive: true });
     const before = await snapshotVault(vault);
     const session = engine.startSession({
@@ -243,7 +248,7 @@ describe("the real engine", () => {
     });
 
     const writes: Write[] = [];
-    const scope = await writeScope({ workspaceDir: workspace, vaultDir: vault, servers: [] });
+    const scope = await writeScope({ workspaceDir: workspace, notesDir: vault, servers: [] });
     const changes: EngineEvent[] = [];
     for await (const event of session.run(
       "Using your file-editing tool and not shell redirection, create exactly two files: " +
@@ -264,6 +269,165 @@ describe("the real engine", () => {
     expect(vaultChanges.map((change) => change.path)).toEqual(["note.md"]);
     expect(vaultChanges[0]?.kind).toBe("add");
     expect(vaultChanges[0]?.diff).toContain("TWO");
+  });
+
+  /**
+   * **Skills are readable and not writable, enforced by the sandbox rather than by asking.**
+   *
+   * This is the load-bearing fact of build/15 and it can only be measured here. ADR-0004's
+   * amendment makes Skills human-authored only, and unlike the Root note there is no
+   * injection chokepoint at which the wrapper could enforce that — a Skill is read from
+   * disk on demand. So the entire mechanism is that the Skills directory is a sibling of
+   * the Notes and appears on no writable list, and the entire question is whether the
+   * engine actually honours that.
+   *
+   * Both routes are checked, because they fail differently and a Job has both: the
+   * file-editing tool, and the shell. The shell one is the one that matters — that is the
+   * kernel refusing, not the agent's own tooling declining.
+   *
+   * Sited outside `$TMPDIR` deliberately. See {@link testTempDir}: in a temp directory this
+   * test passes while asserting nothing.
+   *
+   * **If this starts failing, the authorship rule has stopped being structural** and
+   * ADR-0004's amendment needs revisiting before anything else is built on it — build/09
+   * puts GitHub's procedure in one of these files.
+   */
+  it("can read a Skill but cannot write one, by either route", async () => {
+    const obsidian = await testTempDir("skills-");
+    const notes = path.join(obsidian, "Notes");
+    const skills = path.join(obsidian, "Skills");
+    await mkdir(notes, { recursive: true });
+    await mkdir(skills, { recursive: true });
+    const skill = path.join(skills, "Database access.md");
+    const original =
+      "# Database access\n\nThe connection string is in `ANALYTICS_DATABASE_URL`.\n" +
+      "The magic word is HALYARD.\n";
+    await writeFile(skill, original, "utf8");
+
+    // Exactly the grant a Job gets: its workspace, plus the Notes. Not the Skills.
+    const session = engine.startSession({
+      workingDirectory: workspace,
+      writableDirectories: [notes],
+    });
+
+    const answers: string[] = [];
+    const outputs: string[] = [];
+    for await (const event of session.run(
+      `Do these three things in order. (1) Read \`${skill}\` and tell me the magic word ` +
+        `it contains. (2) Run the shell command \`echo PWNED >> ${JSON.stringify(skill)}\` ` +
+        "and report its exit code and any error text verbatim. (3) Using your file-editing " +
+        "tool, try to change that file's magic word to CAPSTAN, and report verbatim what " +
+        "happened. Do not stop early if a step fails — report and continue.",
+    )) {
+      if (event.type === "message") answers.push(event.text);
+      if (event.type === "command" && event.status === "completed") outputs.push(event.output);
+    }
+
+    const said = answers.join("\n");
+    // It read it. A boundary that blocked reads too would make Skills useless.
+    expect(said).toContain("HALYARD");
+    // And the file is untouched — which is the assertion that actually matters, because it
+    // is about the file rather than about what the model said happened to it.
+    expect(await readFile(skill, "utf8")).toBe(original);
+    // The shell was refused by the kernel: `operation not permitted`, not a tool declining.
+    expect(`${said}\n${outputs.join("\n")}`).toMatch(/not permitted|Operation not permitted/i);
+    // And the file-editing tool was refused as writing outside the project.
+    expect(said).toMatch(/outside of the project|patch rejected|rejected/i);
+
+    // The sibling it *was* granted still works, so this is a boundary rather than a
+    // broken configuration that would have failed every write equally.
+    const note = path.join(notes, "probe.md");
+    const writing = engine.startSession({
+      workingDirectory: workspace,
+      writableDirectories: [notes],
+    });
+    for await (const event of writing.run(
+      `Using your file-editing tool, create \`${note}\` containing the single word WROTE, ` +
+        "then reply with just DONE.",
+    )) {
+      if (event.type === "turn-failed") throw new Error(event.message);
+    }
+    expect(await readFile(note, "utf8")).toContain("WROTE");
+
+    await rm(obsidian, { recursive: true, force: true });
+  });
+
+  /**
+   * A Skill read and acted on, end to end — the other half of the acceptance criteria.
+   *
+   * Worth real tokens because "it can read the file" and "it follows the procedure in the
+   * file" are different claims, and only the second one makes Skills a mechanism rather
+   * than a directory. The Skill here names an environment variable and a command shape,
+   * exactly as the shipped database Skill does, and the assertion is that the coworker
+   * used *the variable it was told about* rather than inventing a connection of its own.
+   *
+   * **The Skills section is built by the real `skillsForPrompt`**, not hand-written here.
+   * That matters: a test that composed its own wording would be measuring whether *some*
+   * prompt can get a Skill followed, when the question is whether the one the wrapper
+   * actually sends does. What remains unshared with a live Job is the Slack leg — the
+   * mention in, the answer out — which is covered at the top seam against a fake engine.
+   *
+   * No database: the procedure is a shell command that reads an environment variable, so
+   * this measures the mechanism without needing a service to be up.
+   */
+  it("follows a procedure written in a Skill, including the variable it names", async () => {
+    const obsidian = await testTempDir("skill-follow-");
+    const skills = path.join(obsidian, "Skills");
+    await mkdir(skills, { recursive: true });
+    await writeFile(
+      path.join(skills, "Stock levels.md"),
+      [
+        "# Stock levels",
+        "",
+        "How to read current stock levels.",
+        "",
+        "The inventory file's location is in the environment variable `INVENTORY_PATH`.",
+        "Never guess the path; always read the variable.",
+        "",
+        "Counts are stored as **crates of twelve**, not as units. To report units, multiply",
+        "the crate count by 12.",
+        "",
+        "```sh",
+        'cat "$INVENTORY_PATH"',
+        "```",
+      ].join("\n"),
+      "utf8",
+    );
+
+    // The data the procedure leads to. 7 crates is 84 units, and 84 is a number that
+    // appears nowhere unless the Skill's multiply-by-twelve rule was actually followed.
+    const inventory = path.join(obsidian, "inventory.txt");
+    await writeFile(inventory, "widgets: 7\n", "utf8");
+    // Actually set, in this process's environment, because the engine's subprocess
+    // inherits it — which is the mechanism a Skill's "the credential is in this variable"
+    // depends on. Telling the coworker about a variable that does not exist would test
+    // the prompt rather than the arrangement.
+    process.env.INVENTORY_PATH = inventory;
+
+    const session = engine.startSession({
+      workingDirectory: workspace,
+      writableDirectories: [path.join(obsidian, "Notes")],
+    });
+
+    const answers: string[] = [];
+    for await (const event of session.run(
+      [
+        // The wrapper's own words, so this measures the prompt a real Job sends.
+        skillsForPrompt(skills, await readSkills(skills)),
+        "",
+        "How many widgets do we have in stock, in units? Reply with the number and one",
+        "sentence saying how you got it.",
+      ].join("\n"),
+    )) {
+      if (event.type === "message") answers.push(event.text);
+      if (event.type === "turn-failed") throw new Error(event.message);
+    }
+
+    // 84, not 7: the Skill's domain rule was read and applied. This is the whole claim —
+    // a coworker that merely read the file would have answered 7.
+    expect(answers.at(-1)).toMatch(/84/);
+
+    await rm(obsidian, { recursive: true, force: true });
   });
 
   /**
@@ -301,7 +465,7 @@ describe("the real engine", () => {
     const session = engine.startSession({ workingDirectory: checkout });
     const scope = await writeScope({
       workspaceDir: checkout,
-      vaultDir: path.join(repo, "vault"),
+      notesDir: path.join(repo, "vault"),
       servers: [],
     });
     const writes: Write[] = [];

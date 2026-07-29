@@ -302,7 +302,7 @@ describe("a Job that dies says what it left behind", () => {
     // Vault's own contents are what the record is made from, which is what makes this
     // true of a Job that died as well as one that finished.
     h.engine.script = async () => {
-      await writeFile(path.join(h.vaultDir, "deploys.md"), "Ship on green.\n", "utf8");
+      await writeFile(path.join(h.notesDir, "deploys.md"), "Ship on green.\n", "utf8");
       return [{ type: "turn-failed", message: "the engine gave up" }];
     };
 

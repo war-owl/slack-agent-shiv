@@ -33,7 +33,7 @@ async function main(): Promise<void> {
 
   subscribeToMentions(app, createMentionGateway({ coworker, log }), log);
   await app.start();
-  log.info(`Listening for @-mentions over Socket Mode. Vault: ${config.vaultDir}`);
+  log.info(`Listening for @-mentions over Socket Mode. Vault: ${config.notesDir}`);
 }
 
 main().catch((error: unknown) => {

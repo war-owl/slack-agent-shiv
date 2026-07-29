@@ -3,6 +3,7 @@ import type { Clock } from "../ports/clock.ts";
 import type { Engine } from "../ports/engine.ts";
 import type { Logger } from "../ports/log.ts";
 import { rootForPrompt, ROOT_NOTE_FILENAME, type RootNote } from "./root.ts";
+import { SKILLS_DIRNAME } from "./skills.ts";
 
 /**
  * The Librarian: the closing pass that decides whether anything was worth remembering.
@@ -55,7 +56,7 @@ export interface LibrarianDeps {
 }
 
 export interface LibrarianJob {
-  vaultDir: string;
+  notesDir: string;
   /** The Job's workspace, so the pass runs on the same desk with the same manual. */
   workingDirectory: string;
   root: RootNote;
@@ -101,7 +102,7 @@ export async function runLibrarianPass(
   try {
     const session = deps.engine.startOneOffSession({
       workingDirectory: job.workingDirectory,
-      writableDirectories: [job.vaultDir],
+      writableDirectories: [job.notesDir],
     });
     for await (const event of session.run(librarianPrompt(job), { signal: deadline.signal })) {
       if (event.type === "message") said = event.text;
@@ -150,7 +151,7 @@ function librarianPrompt(job: LibrarianJob): string {
     "— something that will still be true and still be useful next week, in a different",
     "thread. If so, write it down where it belongs. If not, write nothing and say so.",
     "",
-    `Your Vault is the directory \`${job.vaultDir}\`. You can read and write it.`,
+    `Your Vault is the directory \`${job.notesDir}\`. You can read and write it.`,
     "",
     rootForPrompt(job.root),
     "",
@@ -249,5 +250,11 @@ const INVARIANTS = [
   "  job, is stamped automatically after you finish.",
   "- **Never copy a credential, token or key into a Note.** The Vault is human-readable",
   "  by design and will plausibly be committed to git. Name the environment variable.",
+  `- **You cannot write Skills.** The \`${SKILLS_DIRNAME}\` directory beside your Notes holds`,
+  "  procedures people wrote for you, and it is read-only to you — the filesystem will",
+  "  refuse the write, so do not spend a turn discovering that. If the job showed that one",
+  "  of them is wrong or has drifted, write an ordinary Note saying what you found and",
+  "  where, and link it from the topic it concerns. That is how the fix reaches the person",
+  "  who can make it.",
   "- **Do not reorganise the Vault.** You are filing one thing, not tidying the library.",
 ].join("\n");

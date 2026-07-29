@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { z } from "zod";
+import { NOTES_DIRNAME, SKILLS_DIRNAME } from "./vault/skills.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -121,8 +122,29 @@ export const configSchema = z.object({
     botToken: z.string().min(1),
     appToken: z.string().min(1),
   }),
-  /** The Vault: Markdown Notes in a directory the human owns and opens in Obsidian. */
-  vaultDir: z.string().min(1),
+  /**
+   * The Vault's **Notes** — the half the coworker writes, and the only directory outside
+   * a Job's own workspace that the engine is given write access to.
+   *
+   * A subdirectory of the Obsidian vault rather than the whole of it, because its sibling
+   * {@link skillsDir} has to be readable and *not* writable and the sandbox grants by
+   * directory tree: there is no carving a read-only hole out of a writable root. The
+   * parent holds both, and the parent is what a human opens in Obsidian — so wikilinks
+   * resolve from a Note to a Skill and back, in one vault.
+   */
+  notesDir: z.string().min(1),
+  /**
+   * The Vault's **Skills** — procedures a human wrote down, which the coworker follows
+   * and cannot edit.
+   *
+   * Passed to the engine as writable nowhere, which is the entire enforcement mechanism
+   * (ADR-0004 as amended; see `vault/skills.ts`). It must be a sibling of
+   * {@link notesDir} rather than inside it, and it must not sit in a temporary directory,
+   * because `workspace-write` grants those unconditionally. Both are checked at startup
+   * and both are fatal — an instance whose Skills are agent-writable is not the instance
+   * the documentation describes.
+   */
+  skillsDir: z.string().min(1),
   /** Where per-Thread Job workspaces are created. The sandbox's writable root. */
   workspaceRoot: z.string().min(1),
   /**
@@ -167,7 +189,15 @@ export const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>;
 
 const defaults = {
-  vaultDir: path.join(repoRoot, "vault"),
+  /**
+   * `vault/` is the Obsidian vault; `Notes` and `Skills` are its two halves.
+   *
+   * The split is not organisational — it is the write boundary. Skills are not listed
+   * here because they are derived from this: they sit next to the Notes unless
+   * `SKILLS_DIR` says otherwise. See {@link configSchema}'s `skillsDir`, and
+   * `vault/skills.ts` for why it cannot be one directory.
+   */
+  notesDir: path.join(repoRoot, "vault", NOTES_DIRNAME),
   workspaceRoot: path.join(repoRoot, ".workspaces"),
   stateDir: path.join(repoRoot, ".state"),
   operatingManualPath: path.join(repoRoot, "assets", "operating-manual.md"),
@@ -185,12 +215,23 @@ const defaults = {
  * parse into.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  // `NOTES_DIR` rather than `VAULT_DIR`, because it names the Notes half rather than the
+  // vault: the vault is what a human opens in Obsidian and it holds Skills too. Renamed
+  // on build/15, when the write boundary split the two.
+  const notesDir = env.NOTES_DIR ?? defaults.notesDir;
   const parsed = configSchema.safeParse({
     slack: {
       botToken: env.SLACK_BOT_TOKEN ?? "",
       appToken: env.SLACK_APP_TOKEN ?? "",
     },
-    vaultDir: env.VAULT_DIR ?? defaults.vaultDir,
+    notesDir,
+    // Next to the Notes rather than at the shipped default, when only one of the two has
+    // been moved. Someone who points `NOTES_DIR` at their own Obsidian vault means their
+    // Skills to be there too — leaving them at `<repo>/vault/Skills` would be an empty
+    // directory the coworker is told about and a real one nobody reads. The sibling
+    // relationship is the layout the write boundary depends on, so it is what a partial
+    // configuration falls back to.
+    skillsDir: env.SKILLS_DIR ?? path.join(path.dirname(notesDir), SKILLS_DIRNAME),
     workspaceRoot: env.WORKSPACE_ROOT ?? defaults.workspaceRoot,
     stateDir: env.STATE_DIR ?? defaults.stateDir,
     operatingManualPath: env.OPERATING_MANUAL_PATH ?? defaults.operatingManualPath,

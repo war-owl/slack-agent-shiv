@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { onTestFinished } from "vitest";
 import { BOUND_DEFAULTS, type Config } from "../../src/config.ts";
+import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
 import { openSessionStore, sessionStoreFile } from "../../src/sessions/store.ts";
@@ -12,6 +12,7 @@ import {
   type Delivery,
 } from "../../src/slack/mentions.ts";
 import { FakeClock, FakeEngine, FakeInventoryProber, FakeSlack } from "./fakes.ts";
+import { testTempDir } from "./test-root.ts";
 
 export const BOT_USER_ID = "U0COWORKER";
 export const DEFAULT_THREAD_TS = "1700000000.000100";
@@ -26,12 +27,22 @@ export interface HarnessOptions {
    * process restart is modelled: same directories on disk, everything in memory gone.
    */
   root?: string;
+  /**
+   * Put the Skills somewhere other than beside the Notes.
+   *
+   * Only the tests for the startup checks want this: the point of those checks is that
+   * every arrangement other than the sibling one voids the authorship rule, so testing
+   * them means building an instance that is wrong on purpose.
+   */
+  skillsDir?: string;
 }
 
 export interface CoworkerHarness {
   /** The temporary directory holding everything this instance keeps on disk. */
   root: string;
-  vaultDir: string;
+  notesDir: string;
+  /** The read-only half of the Vault. A test writes here as the *human* would. */
+  skillsDir: string;
   workspaceRoot: string;
   stateDir: string;
   operatingManualPath: string;
@@ -71,13 +82,19 @@ type MentionOverrides = Partial<AppMentionEvent> & { eventId?: string };
  * translation and the real dedupe, so what the tests drive is what Slack delivers.
  */
 export async function coworkerHarness(options: HarnessOptions = {}): Promise<CoworkerHarness> {
-  const root = options.root ?? (await mkdtemp(path.join(os.tmpdir(), "open-agent-test-")));
+  const root = options.root ?? (await testTempDir("open-agent-test-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
 
-  const vaultDir = path.join(root, "vault");
+  // The Obsidian vault, and its two halves. Siblings rather than one directory because
+  // that split *is* the write boundary on Skills — see `src/vault/skills.ts` — so a
+  // harness that flattened it would be testing an instance nobody runs.
+  const obsidianDir = path.join(root, "vault");
+  const notesDir = path.join(obsidianDir, NOTES_DIRNAME);
+  const skillsDir = options.skillsDir ?? path.join(obsidianDir, SKILLS_DIRNAME);
   const workspaceRoot = path.join(root, "workspaces");
   const stateDir = path.join(root, "state");
-  await mkdir(vaultDir, { recursive: true });
+  await mkdir(notesDir, { recursive: true });
+  await mkdir(skillsDir, { recursive: true });
 
   const operatingManualPath = path.join(root, "operating-manual.md");
   await writeFile(
@@ -88,7 +105,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
 
   const config: Config = {
     slack: { botToken: "xoxb-test", appToken: "xapp-test" },
-    vaultDir,
+    notesDir,
+    skillsDir,
     workspaceRoot,
     stateDir,
     operatingManualPath,
@@ -176,7 +194,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
 
   return {
     root,
-    vaultDir,
+    notesDir,
+    skillsDir,
     workspaceRoot,
     stateDir,
     operatingManualPath,

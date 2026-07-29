@@ -105,8 +105,8 @@ export const NO_ROOT_NOTE: RootNote = {
   oversizeBytes: undefined,
 };
 
-export function rootNotePath(vaultDir: string): string {
-  return path.join(vaultDir, ROOT_NOTE_FILENAME);
+export function rootNotePath(notesDir: string): string {
+  return path.join(notesDir, ROOT_NOTE_FILENAME);
 }
 
 /**
@@ -115,10 +115,10 @@ export function rootNotePath(vaultDir: string): string {
  * Never throws for a Vault that is empty or absent: a first Job against a fresh Vault is
  * the ordinary way this starts, and it has no map yet because there is nothing on it.
  */
-export async function readRootNote(vaultDir: string): Promise<RootNote> {
+export async function readRootNote(notesDir: string): Promise<RootNote> {
   let contents: string;
   try {
-    contents = await readFile(rootNotePath(vaultDir), "utf8");
+    contents = await readFile(rootNotePath(notesDir), "utf8");
   } catch {
     return NO_ROOT_NOTE;
   }
@@ -199,12 +199,12 @@ export function rootForPrompt(root: RootNote): string {
  * once, loudly, where somebody is reading — and again per Job, where the condition is
  * actually biting. Empty when the Root is fine, which is the normal case.
  */
-export function rootNoteConcerns(root: RootNote, vaultDir: string): string[] {
+export function rootNoteConcerns(root: RootNote, notesDir: string): string[] {
   const concerns: string[] = [];
 
   if (root.dropped.length > 0) {
     concerns.push(
-      `${count(root.dropped.length, "line")} of ${rootNotePath(vaultDir)} ` +
+      `${count(root.dropped.length, "line")} of ${rootNotePath(notesDir)} ` +
         `${root.dropped.length === 1 ? "is" : "are"} not a wikilink with a short label, ` +
         "so it was dropped before the coworker saw it. The Root note is the only file " +
         "that goes into every Job's prompt, so it holds links and nothing else — put the " +
@@ -215,7 +215,7 @@ export function rootNoteConcerns(root: RootNote, vaultDir: string): string[] {
 
   if (root.oversizeBytes !== undefined) {
     concerns.push(
-      `${rootNotePath(vaultDir)} is ${root.oversizeBytes} bytes, over the ` +
+      `${rootNotePath(notesDir)} is ${root.oversizeBytes} bytes, over the ` +
         `${ROOT_NOTE_MAX_BYTES}-byte ceiling for a file that goes into every prompt. ` +
         "It has **not** been shortened — nothing here truncates, because Codex already " +
         "truncates silently at 32 KiB and a second silent cut is how a coworker stops " +
