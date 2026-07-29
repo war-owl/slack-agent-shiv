@@ -31,11 +31,13 @@ import type { EngineEvent } from "../ports/engine.ts";
  * which kills the subprocess. A Job that has been stopped and is still spending money
  * has not been stopped.
  *
- * The configured `bounds` carry a fourth number, `maxConcurrentJobs`, which nothing
- * here reads. It bounds the *instance* rather than a Job — it decides whether a Job
- * starts, where these three decide when a started one has gone on too long — so it is
- * enforced by `./queue.ts`. It travels in the same config group because it is the same
- * question for whoever writes the `.env`.
+ * The configured `bounds` carry two more numbers that nothing here reads, and neither is a
+ * bound on one Job's work. `maxConcurrentJobs` bounds the *instance* — it decides whether a
+ * Job starts, where these three decide when a started one has gone on too long — and is
+ * enforced by `./queue.ts`. `librarianTimeoutMs` bounds the closing pass, which runs after
+ * the Job has already reported, and is enforced by `../vault/librarian.ts`. Both travel in
+ * the same config group because they are the same question for whoever writes the `.env`:
+ * what will this instance let itself do.
  */
 
 /** Why a Job stopped before it was finished. */

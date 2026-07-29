@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
 import { createCodexEngine } from "../../src/engine/codex.ts";
 import type { Engine, EngineEvent } from "../../src/ports/engine.ts";
+import { changesBetween, snapshotVault } from "../../src/vault/snapshot.ts";
 import { writeScope, writesIn, type Write } from "../../src/writes/classify.ts";
 
 /**
@@ -215,21 +216,27 @@ describe("the real engine", () => {
   });
 
   /**
-   * The audit record of a file Write rests on three facts about `exec` that a fake
-   * asserts by construction and therefore cannot vouch for: that a patch outside the
-   * working directory is applied at all when the directory is passed as writable, that
-   * the path comes back in a form comparable against the workspace, and that a
-   * completed patch is reported **once**. The last one is the sharp one — a second
-   * completed event for the same patch would append a second permanent record of a
-   * Write that happened once, which is exactly the kind of thing an audit trail must
-   * not do.
+   * A Note the coworker writes into the human's Vault, end to end, against a real
+   * engine — and the two mechanisms that answer for it, which are deliberately not the
+   * same mechanism.
    *
-   * Asserted through the real classifier rather than on the events, because what has
-   * to hold is the conclusion it draws: one record, for the file outside the workspace.
+   * The **engine** has to actually apply a patch outside its working directory when that
+   * directory is passed as writable. A fake asserts that by construction; if `exec` ever
+   * stops honouring `additionalDirectories`, every Note the coworker tries to write fails
+   * and nothing else in this suite would notice.
+   *
+   * The **record** comes from the Vault's own contents rather than from the event
+   * (`vault/snapshot.ts`), which is what lets it catch a Note written by shell
+   * redirection and carry what the Note now says. So the classifier is asserted to record
+   * *nothing* here — a Vault path is not its business — and the snapshot is asserted to
+   * record exactly the one file, once. Two records for one Write is precisely what an
+   * audit trail must not do, and with two mechanisms in play that is worth pinning
+   * against the real thing.
    */
-  it("reports a patch outside the workspace once, and its own scratch file not at all", async () => {
+  it("writes into the Vault outside its workspace, and is recorded once from the Vault", async () => {
     const vault = path.join(workspace, "..", `vault-${path.basename(workspace)}`);
     await mkdir(vault, { recursive: true });
+    const before = await snapshotVault(vault);
     const session = engine.startSession({
       workingDirectory: workspace,
       writableDirectories: [vault],
@@ -249,10 +256,14 @@ describe("the real engine", () => {
 
     expect(changes.length).toBeGreaterThan(0);
     expect(await readFile(path.join(vault, "note.md"), "utf8")).toContain("TWO");
-    // One record: the file outside the workspace. The scratch file next to its own
-    // AGENTS.md is the coworker's desk, and reporting it would be narration.
-    expect(writes.map((write) => write.action)).toEqual(["Created a Note in the Vault"]);
-    expect(writes[0]?.subject).toBe("note.md");
+    // Neither file is recorded from the event stream: the scratch file next to its own
+    // AGENTS.md is the coworker's own desk, and the Note is the Vault's to answer for.
+    expect(writes).toEqual([]);
+    // And the Vault answers for it: one change, the Note, with what it now says.
+    const vaultChanges = changesBetween(before, await snapshotVault(vault));
+    expect(vaultChanges.map((change) => change.path)).toEqual(["note.md"]);
+    expect(vaultChanges[0]?.kind).toBe("add");
+    expect(vaultChanges[0]?.diff).toContain("TWO");
   });
 
   /**

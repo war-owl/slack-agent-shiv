@@ -9,15 +9,16 @@ one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-
 a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)),
 an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)),
 bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)),
-and a queue ([build/06](.scratch/slack-coworker/build/06-queue-at-turn-boundary.md)):
+a queue ([build/06](.scratch/slack-coworker/build/06-queue-at-turn-boundary.md)),
+and the Vault ([build/07](.scratch/slack-coworker/build/07-the-vault.md)):
 a mention goes in, one message keeps you posted on the plan and the step it is on, every
 action it takes out in the world is appended to the thread permanently, and an answer
 comes back into the same thread — where a follow-up days later resumes the same
 conversation without you restating anything. Each thread gets its own session and
 is never handed another thread's — though it is not yet *prevented* from going and
 reading one, which is measured and written down in
-[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no Vault and no connectors
-yet.
+[ADR-0003](docs/adr/0003-vault-is-the-memory.md). It now remembers, in Markdown you own
+(below). No connectors yet.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
@@ -35,8 +36,39 @@ pnpm start
 
 The only thing the instance keeps for itself is `.state/sessions.json`: which Codex
 session each Slack thread resumes into. Conversations live on Codex's disk and notes
-will live in the Vault, so that one small file is all this project persists — delete
-it and every thread starts over as if it had never spoken to you.
+live in the Vault, so that one small file is all this project persists — delete it and
+every thread starts over as if it had never spoken to you.
+
+## Its memory is a folder of Markdown
+
+Point `VAULT_DIR` at a directory — an Obsidian vault, if you use one — and that is
+where everything the coworker learns goes. **There is no other memory**: no hidden
+store, no embedding index, nothing it believes that you cannot open in a text editor.
+Edit a Note by hand and it respects your edit; delete one and the belief is gone.
+
+At the end of each job it decides for itself whether anything was worth remembering.
+**Usually the answer is no** — a question answered is not something learned — and
+writing nothing is the expected outcome rather than a failure. When there is something,
+it searches the vault first and updates what is already there by preference, so the
+vault grows rather than accumulating near-duplicates. There is no folder taxonomy: it
+files alongside whatever arrangement it finds, so if you move things, your arrangement
+is the one it follows.
+
+**Every Note it creates, changes or deletes is echoed into the thread as a diff** —
+including ones written by a shell command, because the record comes from comparing the
+directory before and after rather than from what the engine said it did. That echo is
+the control: a note that says something wrong, or something planted by text the
+coworker read somewhere, shows up where you are already reading, and fixing it is
+deleting a file.
+
+One file in the vault is different. `Root.md` is the map — hub links only, and it is
+put in front of the coworker at the start of every job, which is what stops it
+answering confidently while the note that settles the question sits unread. Because it
+reaches every job in every thread, **anything in it that is not a wikilink with a short
+label is stripped before the model sees it**, and you get told what was stripped. That
+is deliberate and load-bearing rather than fussy: it is the only thing standing between
+one poisoned job and every job after it ([ADR-0004](docs/adr/0004-root-note-is-links-only.md)).
+It is otherwise an ordinary note — open it and rewrite it.
 
 ## What stops a runaway job
 
@@ -60,6 +92,10 @@ Stopping kills the engine, but a shell command it had already launched can outli
 
 Four jobs run at once across the whole instance (`MAX_CONCURRENT_JOBS`); the rest wait
 their turn and say so in their thread.
+
+The closing pass that files notes has a bound of its own (`LIBRARIAN_TIMEOUT_MS`, five
+minutes). Hitting it abandons the tidying up and never fails the job — the work is done
+and reported by then, and curation is best-effort.
 
 ## Mentioning it while it is already working
 

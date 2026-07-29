@@ -1,4 +1,5 @@
 import type { Mention } from "../coworker.ts";
+import { rootForPrompt, type RootNote } from "../vault/root.ts";
 import { taskIn } from "./request.ts";
 
 /**
@@ -29,6 +30,18 @@ export interface PromptContext {
    * finished, and answers a question nobody is still asking.
    */
   queuedDuringPreviousJob: boolean;
+  /** Where the Vault is. The coworker cannot look things up without being told. */
+  vaultDir: string;
+  /**
+   * The Vault's Root note, already stripped to links.
+   *
+   * Injected by the wrapper rather than fetched by an instruction in the operating
+   * manual, and that is the whole point of it: "always read the root first" is a
+   * behavioural guarantee, where putting the map in the prompt is a structural one. The
+   * canonical memory failure is not bad retrieval — it is a Job answering confidently
+   * from the Thread while the Note that settles it sits unread (ADR-0003).
+   */
+  root: RootNote;
 }
 
 export function buildJobPrompt(mention: Mention, context: PromptContext): string {
@@ -40,6 +53,8 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     `Thread: ${mention.thread.ts}`,
     `From: <@${mention.userId}>`,
     "",
+    ...vaultSection(context),
+    "",
     ...(context.queuedDuringPreviousJob ? [QUEUED_NOTE, ""] : []),
     "Their message:",
     "",
@@ -48,6 +63,26 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     "Work on this now. Your final message is what gets posted back into the Thread,",
     "so write it for the people reading that Thread.",
   ].join("\n");
+}
+
+/**
+ * Where the coworker's memory is, and what is on the map.
+ *
+ * Placed before the request, because whether the Vault already answers this changes how
+ * to approach it — and a Job that reads its Notes after forming an answer has already
+ * formed the answer.
+ *
+ * A Vault with no map still gets a section, and `rootForPrompt` is what decides which of
+ * the three things there are to say. The path is the load-bearing part either way: an
+ * empty Vault is a first Job, not a broken one, and a coworker that does not know where
+ * its memory lives cannot start one.
+ */
+function vaultSection(context: PromptContext): string[] {
+  return [
+    `Your Notes — everything you have ever written down — are in \`${context.vaultDir}\`.`,
+    "",
+    rootForPrompt(context.root),
+  ];
 }
 
 /**

@@ -1,3 +1,4 @@
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { STATUS_HEARTBEAT_MS } from "../src/reporter/status.ts";
@@ -23,14 +24,22 @@ function recordsIn(texts: string[]): string[] {
 describe("the audit record of a Write", () => {
   it("appends a permanent message of its own naming what was written", async () => {
     const h = await coworkerHarness();
-    h.engine.script = () => [
-      {
-        type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "people", "asha.md"), kind: "add" }],
-        status: "completed",
-      },
-      { type: "message", text: "Filed what I learned about Asha." },
-    ];
+    h.engine.script = async () => {
+      // The file is really written, because a Note's record comes from the Vault's own
+      // contents rather than from this event (`vault/snapshot.ts`). The event is still
+      // emitted, because a real engine emits it — and it is deliberately not what the
+      // record is made from.
+      await mkdir(path.join(h.vaultDir, "people"), { recursive: true });
+      await writeFile(path.join(h.vaultDir, "people", "asha.md"), "Designer on Atlas.\n", "utf8");
+      return [
+        {
+          type: "file-change",
+          changes: [{ path: path.join(h.vaultDir, "people", "asha.md"), kind: "add" }],
+          status: "completed",
+        },
+        { type: "message", text: "Filed what I learned about Asha." },
+      ];
+    };
 
     await h.mention();
 
@@ -51,9 +60,11 @@ describe("the audit record of a Write", () => {
     h.engine.script = async function* () {
       yield { type: "plan", steps: [{ text: "Write the note", completed: false }] };
       yield {
-        type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "deploys.md"), kind: "update" }],
+        type: "command",
+        command: "gh issue comment 12 --body 'looking at this'",
         status: "completed",
+        output: "",
+        exitCode: 0,
       };
       wrote.resolve();
       await release.promise;
@@ -77,37 +88,44 @@ describe("the audit record of a Write", () => {
     expect(h.slack.versionsOf(recordTs)).toHaveLength(1);
   });
 
-  it("appears in the order the Writes happened", async () => {
+  it("appears in the order the Writes happened, the Vault's own changes last", async () => {
     const h = await coworkerHarness();
-    h.engine.script = () => [
-      {
-        type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "atlas.md"), kind: "add" }],
-        status: "completed",
-      },
-      {
-        type: "command",
-        command: "git push origin note-fixes",
-        status: "completed",
-        output: "To github.com:acme/vault.git\n   9a1f2c3..4d5e6f7  note-fixes -> note-fixes\n",
-        exitCode: 0,
-      },
-      {
-        type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "stale.md"), kind: "delete" }],
-        status: "completed",
-      },
-      { type: "message", text: "Done." },
-    ];
+    await writeFile(path.join(h.vaultDir, "stale.md"), "Out of date.\n", "utf8");
+    h.engine.script = async () => {
+      await writeFile(path.join(h.vaultDir, "atlas.md"), "The payments rewrite.\n", "utf8");
+      await rm(path.join(h.vaultDir, "stale.md"));
+      return [
+        {
+          type: "command",
+          command: "gh issue comment 12 --body 'noted'",
+          status: "completed",
+          output: "",
+          exitCode: 0,
+        },
+        {
+          type: "command",
+          command: "git push origin note-fixes",
+          status: "completed",
+          output: "To github.com:acme/vault.git\n   9a1f2c3..4d5e6f7  note-fixes -> note-fixes\n",
+          exitCode: 0,
+        },
+        { type: "message", text: "Done." },
+      ];
+    };
 
     await h.mention();
 
     const records = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(records).toHaveLength(3);
-    expect(records[0]).toContain("atlas.md");
+    expect(records).toHaveLength(4);
+    // What happened out in the world, in the order it happened.
+    expect(records[0]).toContain("gh issue comment 12");
     expect(records[1]).toContain("git push origin note-fixes");
-    expect(records[2]).toContain("stale.md");
-    expect(records[2]).toMatch(/deleted/i);
+    // Then the Vault, as one block. Its records cannot come sooner: they carry a diff,
+    // and a diff is the difference between the Vault before the Job and after it, which
+    // does not exist until the Job is over. Documented in `vault/snapshot.ts`.
+    expect(records[2]).toContain("atlas.md");
+    expect(records[3]).toContain("stale.md");
+    expect(records[3]).toMatch(/deleted/i);
   });
 
   it("links the thing that was written when the Write hands back a link", async () => {
@@ -234,10 +252,12 @@ describe("the audit record of a Write", () => {
 
   it("does not record a file change the engine failed to apply", async () => {
     const h = await coworkerHarness();
+    // Outside the Vault on purpose: a Vault path is answered for by the Vault's contents,
+    // where this is about the engine's own report of a patch that did not land.
     h.engine.script = () => [
       {
         type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "asha.md"), kind: "update" }],
+        changes: [{ path: path.join(h.root, "elsewhere", "asha.md"), kind: "update" }],
         status: "failed",
       },
       { type: "message", text: "I could not write that note." },
@@ -366,17 +386,11 @@ describe("a connector's Writes", () => {
 describe("when the record itself cannot be posted", () => {
   it("finishes the Job and says the trail has a hole in it", async () => {
     const h = await coworkerHarness();
-    h.engine.script = () => {
+    h.engine.script = async () => {
+      await writeFile(path.join(h.vaultDir, "asha.md"), "Designer on Atlas.\n", "utf8");
       // The status message is already posted, so this refusal lands on the record.
       h.slack.failNextPost = new Error("slack is down");
-      return [
-        {
-          type: "file-change",
-          changes: [{ path: path.join(h.vaultDir, "asha.md"), kind: "add" }],
-          status: "completed",
-        },
-        { type: "message", text: "Filed what I learned about Asha." },
-      ];
+      return [{ type: "message", text: "Filed what I learned about Asha." }];
     };
 
     await h.mention();

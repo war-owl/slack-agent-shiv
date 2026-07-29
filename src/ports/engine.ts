@@ -107,6 +107,21 @@ export interface Engine {
   version(): Promise<string>;
   startSession(options: SessionOptions): EngineSession;
   /**
+   * A Session nobody will ever resume: one prompt, one answer, no identity kept.
+   *
+   * The Librarian's closing pass is this. It is deliberately *not* a Turn in the
+   * Thread's own Session — the spec has it handed the Job's transcript, which is only
+   * necessary because it does not share the conversation, and that is the point: a pass
+   * that lived in the Thread's Session would leave its bookkeeping in the context every
+   * future Job in that Thread resumes into.
+   *
+   * Separate from {@link startSession} because the *wrapper* treats the two differently
+   * — one identifier is written to the Session store and the other is thrown away — and
+   * a caller that cannot tell them apart is a caller that can accidentally persist the
+   * wrong one.
+   */
+  startOneOffSession(options: SessionOptions): EngineSession;
+  /**
    * Pick a Session back up where it left off.
    *
    * `sessionId` is what a previous Session reported as its own `id`. The engine holds

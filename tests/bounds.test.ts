@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BOUND_DEFAULTS } from "../src/config.ts";
@@ -297,14 +298,13 @@ describe("a Job that dies says what it left behind", () => {
 
   it("counts the Writes it had already made, because those are what to go and check", async () => {
     const h = await coworkerHarness();
-    h.engine.script = () => [
-      {
-        type: "file-change",
-        changes: [{ path: path.join(h.vaultDir, "deploys.md"), kind: "add" }],
-        status: "completed",
-      },
-      { type: "turn-failed", message: "the engine gave up" },
-    ];
+    // A Note written before the engine gave up. It is on disk, so it is recorded — the
+    // Vault's own contents are what the record is made from, which is what makes this
+    // true of a Job that died as well as one that finished.
+    h.engine.script = async () => {
+      await writeFile(path.join(h.vaultDir, "deploys.md"), "Ship on green.\n", "utf8");
+      return [{ type: "turn-failed", message: "the engine gave up" }];
+    };
 
     await h.mention();
 

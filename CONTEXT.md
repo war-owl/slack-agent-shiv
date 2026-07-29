@@ -14,6 +14,8 @@ The coworker's accumulated understanding of one Thread. Exactly one Session per 
 
 Sessions are isolated from one another. A Session knows what happened in its own Thread and what the coworker has written to the Vault — nothing else. This is deliberate: it makes the coworker's knowledge explainable ("it knows what it wrote down") and keeps a private channel's contents out of a public channel's answers.
 
+One kind of work belongs to no Session: the [Librarian](#librarian)'s closing pass. It is a **one-off call** — a conversation nobody resumes, handed what it needs to know and then forgotten. It is not the Thread's Session and does not become part of it, which is why it has to be *told* what happened in the Job rather than remembering it.
+
 ## Job
 
 One piece of delegated work: a human mentions the coworker, the coworker works, the coworker reports back. A Job is the unit a human thinks in — "I asked it to do a thing" — and the unit that succeeds or fails as a whole.
@@ -38,7 +40,7 @@ A single Markdown file in the Vault. The one kind of artifact the coworker write
 
 A Note is **the current belief about its topic**, not a log of beliefs. Learning something that contradicts a Note means rewriting that Note, so divergence becomes visible to a human reading the Vault rather than accumulating silently.
 
-Frontmatter carries when it was last modified and which Thread and Job wrote it, so both a human and the coworker can judge staleness and origin.
+Frontmatter carries when it was last modified and which Thread and Job wrote it, so both a human and the coworker can judge staleness and origin. It is stamped by the wrapper rather than written by the coworker: the one field that says "this came from the coworker" should not be the one field the coworker could forget.
 
 ## Root note
 

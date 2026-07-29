@@ -189,15 +189,34 @@ export interface FakeTurn {
 }
 
 export class FakeEngine implements Engine {
-  /** Every Turn run, in order. */
+  /** Every Turn of work run, in order. The Librarian's passes are not among them. */
   readonly ranTurns: FakeTurn[] = [];
   readonly startedSessions: SessionOptions[] = [];
   /** Every resume attempt, in order — a real Codex reads these off its own disk. */
   readonly resumedSessions: { sessionId: string; options: SessionOptions }[] = [];
+  /**
+   * The Librarian's closing passes, kept apart from the Turns of work.
+   *
+   * Apart because the two are different questions a test asks — "how many Jobs ran" and
+   * "how many curation passes ran" — and because a Job gains one of each, so counting
+   * them together would make every assertion about Jobs arithmetic about the Librarian.
+   */
+  readonly oneOffTurns: FakeTurn[] = [];
   versionToReport = RECORDED_CODEX_VERSION;
 
   /** Replaced per test to script what the engine does. */
   script: EngineScript = () => [{ type: "message", text: "Done." } as const];
+
+  /**
+   * And what it does for the Librarian's pass, which by default is nothing.
+   *
+   * Nothing is the honest default: most Jobs are worth no Note, so a fake that filed
+   * something after every Job would make the common case the untested one — and it would
+   * put a Write record into the Thread of every test that only ever wanted an answer.
+   */
+  librarianScript: EngineScript = () => [
+    { type: "message", text: "Nothing here worth remembering." } as const,
+  ];
 
   private nextSession = 1;
   private readonly waiting: { count: number; resolve: () => void }[] = [];
@@ -227,6 +246,19 @@ export class FakeEngine implements Engine {
     return this.session(`session-${this.nextSession++}`, false, options);
   }
 
+  /** A Session nobody resumes: the Librarian's pass, on its own script. */
+  startOneOffSession(options: SessionOptions): EngineSession {
+    return this.session(`one-off-${this.nextSession++}`, false, options, {
+      script: this.librarianScript,
+      into: this.oneOffTurns,
+    });
+  }
+
+  /** The prompts of the Librarian's passes, in order. */
+  get librarianPrompts(): string[] {
+    return this.oneOffTurns.map((turn) => turn.prompt);
+  }
+
   /**
    * A fresh instance of this class models a restarted process, so a Session started
    * before the restart still resumes here — which is what a real Codex does, because
@@ -241,6 +273,7 @@ export class FakeEngine implements Engine {
     sessionId: string,
     resumed: boolean,
     options: SessionOptions,
+    kind: { script: EngineScript; into: FakeTurn[] } = { script: this.script, into: this.ranTurns },
   ): EngineSession {
     const engine = this;
     // A real Session has no id until a Turn starts; a resumed one knows it up front.
@@ -251,7 +284,7 @@ export class FakeEngine implements Engine {
       },
       run(prompt: string, runOptions?: RunOptions): AsyncIterable<EngineEvent> {
         const turn: FakeTurn = { prompt, sessionId, aborted: false };
-        engine.ranTurns.push(turn);
+        kind.into.push(turn);
         engine.settleWaiters();
         id = sessionId;
         return (async function* () {
@@ -267,7 +300,7 @@ export class FakeEngine implements Engine {
             yield { type: "turn-started" } as const;
             const scripted = await Promise.race([
               Promise.resolve(
-                engine.script({ prompt, sessionId, workingDirectory: options.workingDirectory }),
+                kind.script({ prompt, sessionId, workingDirectory: options.workingDirectory }),
               ),
               killed.rejected,
             ]);

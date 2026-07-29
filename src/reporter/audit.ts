@@ -4,7 +4,7 @@ import type { Logger } from "../ports/log.ts";
 import type { SlackClient } from "../ports/slack.ts";
 import type { Thread } from "../thread.ts";
 import { writesIn, type Write, type WriteScope } from "../writes/classify.ts";
-import { code, link, mrkdwn } from "./mrkdwn.ts";
+import { code, fenced, link, mrkdwn } from "./mrkdwn.ts";
 
 /**
  * Audit: every Write appended, permanently.
@@ -46,6 +46,15 @@ export interface AuditTrail {
    * waits for the queue.
    */
   observe(event: EngineEvent): void;
+  /**
+   * Append a Write the wrapper found for itself rather than read off the event stream.
+   *
+   * The Vault's changes arrive this way: they are known by comparing the directory before
+   * and after the Job (`vault/snapshot.ts`), which is the only way to catch a Note
+   * written by a shell command and the only way to know what it now says. Queued through
+   * the same chain as everything else, so the Thread still reads in one order.
+   */
+  append(write: Write): void;
   /** Wait for every queued record to have landed. Never rejects. */
   drain(): Promise<void>;
   /**
@@ -98,6 +107,10 @@ export function startAuditTrail(deps: AuditDeps): AuditTrail {
       }
     },
 
+    append(write: Write): void {
+      pending = pending.then(() => append(write));
+    },
+
     drain: () => pending,
 
     get recorded() {
@@ -127,6 +140,10 @@ function render(write: Write): string {
   // written rather than the doing, or this would say the same thing twice.
   if (write.via !== undefined) lines.push(`_via_ ${code(write.via)}`);
   if (write.detail !== undefined) lines.push(`_${mrkdwn(write.detail)}_`);
+  // And what it now says, for the Writes where that is the point. Fenced rather than
+  // escaped: a diff read as mrkdwn would render a Note's own `*bold*` and `_italics_` as
+  // formatting, and a record of what changed has to show the characters that changed.
+  if (write.diff !== undefined) lines.push(fenced(write.diff));
   return lines.join("\n");
 }
 
@@ -139,5 +156,7 @@ function plainly(write: Write): string {
     write.url === undefined ? "" : ` <${write.url}>`,
     write.via === undefined ? "" : ` via ${write.via}`,
     write.detail === undefined ? "" : ` — ${write.detail}`,
+    // Whole, because this log line is now the only account of what the Note says.
+    write.diff === undefined ? "" : `\n${write.diff}`,
   ].join("");
 }

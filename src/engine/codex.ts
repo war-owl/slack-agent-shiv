@@ -78,6 +78,17 @@ export async function createCodexEngine(options: CodexEngineOptions): Promise<En
     },
 
     /**
+     * The same call to Codex as {@link startSession} — a fresh thread — and the whole
+     * difference is that its identifier goes nowhere. Codex will still write a rollout
+     * for it under its own home, because `exec` has no ephemeral mode worth using
+     * (`--ephemeral` disables persistence entirely, including for Sessions that need
+     * it), so what makes this one-off is that nothing ever asks to resume it.
+     */
+    startOneOffSession(session: SessionOptions): EngineSession {
+      return codexSession(codex.startThread(threadOptions(session)));
+    },
+
+    /**
      * Codex persists each Session as an append-only rollout under its own home, so
      * resuming needs nothing but the identifier — the conversation is already there.
      * The options are passed again because they describe *this* Job's sandbox, which

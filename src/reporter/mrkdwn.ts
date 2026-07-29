@@ -29,6 +29,19 @@ export function link(url: string, label: string): string {
   return `<${url.replace(/&/g, "&amp;")}|${mrkdwn(label)}>`;
 }
 
+/**
+ * Several lines, as a code block — for content whose own characters are the point.
+ *
+ * A Note's diff comes through here rather than through {@link mrkdwn}: the Note may
+ * itself contain `*asterisks*` and `_underscores_`, and a record of what changed that
+ * silently rendered them as formatting would be showing the reader something other than
+ * what is in the file. `<`, `>` and `&` still need escaping — Slack parses those inside a
+ * fence — and a fence inside the content is defanged, or it would end the block early.
+ */
+export function fenced(value: string): string {
+  return `\`\`\`\n${escaped(value.replace(/```/g, "'''"))}\n\`\`\``;
+}
+
 /** One line, at most `max` characters, with an ellipsis where it was cut. */
 export function oneLine(value: string, max: number): string {
   const collapsed = value.replace(/\s+/g, " ").trim();

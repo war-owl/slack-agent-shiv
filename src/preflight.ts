@@ -2,6 +2,7 @@ import { RECORDED_CODEX_VERSION, type Config } from "./config.ts";
 import type { Engine } from "./ports/engine.ts";
 import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
+import { readRootNote, rootNoteConcerns, ROOT_NOTE_FILENAME } from "./vault/root.ts";
 
 /**
  * What the instance checks before it accepts its first mention.
@@ -42,6 +43,18 @@ export async function runPreflight(deps: {
       `${bounds.maxTurnsPerJob} Turns per Job, ` +
       `${bounds.tokenBudgetPerJob} tokens per Job. A Job that hits one is stopped.`,
   );
+
+  // Said once at startup as well as once per Job, because the two readers are different
+  // people at different moments. A per-Job warning reaches whoever is watching the logs
+  // while a Job runs; this reaches the person who has just edited their Vault and
+  // restarted, which is exactly when a Root note full of prose gets written.
+  const root = await readRootNote(deps.config.vaultDir);
+  deps.log.info(
+    root.exists
+      ? `Vault: ${deps.config.vaultDir} — Root note has ${root.links.length} hub link(s)`
+      : `Vault: ${deps.config.vaultDir} — no ${ROOT_NOTE_FILENAME} yet, so nothing is on the map`,
+  );
+  for (const concern of rootNoteConcerns(root, deps.config.vaultDir)) deps.log.warn(concern);
 
   for (const server of deps.config.mcpServers) {
     const inventory = await deps.inventoryProber.probe(server);

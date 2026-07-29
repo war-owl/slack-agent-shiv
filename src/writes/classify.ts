@@ -16,7 +16,9 @@ import type { McpServerConfig } from "../ports/mcp.ts";
  *
  * - **A file change.** Known exactly: the Job's workspace is the coworker's own desk
  *   and changes inside it are Progress, while anything it writes *outside* the
- *   workspace has left itself — today that means the Vault, which is the human's.
+ *   workspace has left itself. **The Vault is the exception, and it is answered for
+ *   better elsewhere** — `vault/snapshot.ts` reads the directory itself, so it catches
+ *   what no event mentions and can show what the Note now says.
  * - **An MCP tool call.** Known from configuration. The wrapper is not in the tool
  *   path (ADR-0005) and cannot tell a read from a write by looking, so each connector
  *   names its own writing tools alongside its URL and its token.
@@ -58,6 +60,15 @@ export interface Write {
    * and a trail that only shows successes is the wrong half of the story.
    */
   failure?: string | undefined;
+  /**
+   * What changed, as `+`/`-` lines — for the Writes where the content *is* the point.
+   *
+   * Only a Note carries one today. "Edited a Note" names a file; what a human needs in
+   * order to catch a belief they disagree with is what it now says, which is why ticket
+   * 10 made the echoed diff the actual control over Vault poisoning rather than a nicety.
+   * It comes from `vault/snapshot.ts`, not from anything in this module.
+   */
+  diff?: string | undefined;
 }
 
 /** One directory, under every name it answers to. */
@@ -233,6 +244,17 @@ function at(command: string): RegExp {
   return new RegExp(STARTS_A_COMMAND + command);
 }
 
+/**
+ * What a change of each kind is called, in a colleague's words.
+ *
+ * Exported because the Vault answers for its own changes (`vault/window.ts`) and reaches
+ * the same three verbs from the same three kinds. One map, so a fourth kind of change
+ * cannot end up named here and unnamed there.
+ */
+export function changeVerb(kind: FileChange["kind"]): string {
+  return VERBS[kind];
+}
+
 const VERBS: Record<FileChange["kind"], string> = {
   add: "Created",
   update: "Edited",
@@ -245,15 +267,16 @@ function fileWrite(change: FileChange, scope: WriteScope): Write | undefined {
   const file = path.resolve(scope.workspace.given, change.path);
   if (containing(scope.workspace, file) !== undefined) return undefined;
 
-  const verb = VERBS[change.kind];
-  const vault = containing(scope.vault, file);
-  if (vault !== undefined) {
-    const relative = path.relative(vault, file);
-    const what = relative.endsWith(".md") ? "Note" : "file";
-    const where = change.kind === "delete" ? "from the Vault" : "in the Vault";
-    return { action: `${verb} a ${what} ${where}`, subject: relative };
-  }
-  return { action: `${verb} a file`, subject: file };
+  // The Vault is answered for by the filesystem, not by this event.
+  //
+  // `vault/snapshot.ts` compares the directory's contents before and after the Job, which
+  // sees a Note written with `cp` or removed with `rm` — neither of which appears here —
+  // and can say what the Note now says, which this cannot. Recording it from both places
+  // would put two permanent messages in the Thread for one Write; recording it from here
+  // would be recording the half that misses things and carries no diff.
+  if (containing(scope.vault, file) !== undefined) return undefined;
+
+  return { action: `${changeVerb(change.kind)} a file`, subject: file };
 }
 
 /**

@@ -85,6 +85,20 @@ export const BOUND_DEFAULTS = {
    * writing the `.env` — what will this instance let itself do.
    */
   maxConcurrentJobs: 4,
+  /**
+   * Five minutes for the Librarian's closing pass.
+   *
+   * Its own bound, and much shorter than a Turn's, because it is doing something small
+   * and known: search the Vault, decide, write at most one Note. A pass still going after
+   * five minutes is not being thorough — it is reorganising the library, or looping.
+   *
+   * The reason it needs a bound of its own at all is that it is best-effort. Every other
+   * bound here protects the human from spend; this one protects the *Job* from its own
+   * curation, because the work is already finished and reported by the time this runs and
+   * a slow pass would hold the Thread's next Job behind a tidy-up nobody asked about.
+   * Expiring abandons the pass and never fails the Job.
+   */
+  librarianTimeoutMs: 5 * 60 * 1000,
 } as const;
 
 const boundsSchema = z.object({
@@ -96,6 +110,8 @@ const boundsSchema = z.object({
   tokenBudgetPerJob: z.number().int().positive(),
   /** How many Jobs may run at once across every Thread. The one instance-wide bound. */
   maxConcurrentJobs: z.number().int().positive(),
+  /** Wall clock on the Librarian's closing pass. Expiring abandons it, silently to Slack. */
+  librarianTimeoutMs: z.number().int().positive(),
 });
 
 export type Bounds = z.infer<typeof boundsSchema>;
@@ -190,6 +206,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       maxConcurrentJobs: numberFromEnv(
         env.MAX_CONCURRENT_JOBS,
         BOUND_DEFAULTS.maxConcurrentJobs,
+      ),
+      librarianTimeoutMs: numberFromEnv(
+        env.LIBRARIAN_TIMEOUT_MS,
+        BOUND_DEFAULTS.librarianTimeoutMs,
       ),
     },
     mcpServers: [],

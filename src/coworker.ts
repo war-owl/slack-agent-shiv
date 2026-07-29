@@ -1,12 +1,13 @@
 import type { Config } from "./config.ts";
 import { reasonFor } from "./failure.ts";
-import { boundJob, type JobBounds } from "./jobs/bounds.ts";
+import { boundJob, type JobBounds, type StopReason } from "./jobs/bounds.ts";
 import { trackTurnDurability } from "./jobs/interruption.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
 import { createJobQueue, type JobQueue, type Place, type WaitReason } from "./jobs/queue.ts";
 import { droppedReceipt, queueReceipt, stopReply } from "./jobs/replies.ts";
 import { reportFor, stopSentence, type JobReport } from "./jobs/report.ts";
 import { isStopRequest } from "./jobs/request.ts";
+import { recordTranscript } from "./jobs/transcript.ts";
 import type { Clock } from "./ports/clock.ts";
 import type { Engine, EngineSession, PlanStep, SessionOptions } from "./ports/engine.ts";
 import type { Logger } from "./ports/log.ts";
@@ -17,6 +18,14 @@ import { runPreflight } from "./preflight.ts";
 import { startAuditTrail, type AuditTrail } from "./reporter/audit.ts";
 import { startJobStatus, type JobStatus } from "./reporter/status.ts";
 import { threadKey, type Thread } from "./thread.ts";
+import { runLibrarianPass } from "./vault/librarian.ts";
+import { NO_ROOT_NOTE, readRootNote, rootNoteConcerns, type RootNote } from "./vault/root.ts";
+import {
+  openVaultWindow,
+  trackVaultWindows,
+  type VaultWindow,
+  type VaultWindows,
+} from "./vault/window.ts";
 import { prepareWorkspace } from "./workspace.ts";
 import { writeScope } from "./writes/classify.ts";
 
@@ -70,6 +79,14 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
    */
   const running = new Map<string, JobBounds>();
   const queue = createJobQueue({ maxConcurrentJobs: deps.config.bounds.maxConcurrentJobs });
+  /**
+   * Which Jobs have the Vault open right now.
+   *
+   * There is one Vault and several concurrent Jobs, and the filesystem cannot say which of
+   * them wrote a file. This is how a Job finds out that it cannot claim what it saw — see
+   * `vault/window.ts`, which is where the consequence is spelled out.
+   */
+  const vaultWindows: VaultWindows = trackVaultWindows();
 
   return {
     preflight: () => runPreflight(deps),
@@ -111,7 +128,7 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
 
       return {
         jobId: mention.eventId,
-        completed: runInTurn(deps, running, place, mention, acknowledgement),
+        completed: runInTurn(deps, running, vaultWindows, place, mention, acknowledgement),
       };
     },
   };
@@ -138,11 +155,14 @@ type Acknowledgement =
 async function runInTurn(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
+  vaultWindows: VaultWindows,
   place: Place,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<void> {
-  const outcome = await place.take(() => runJob(deps, running, mention, acknowledgement));
+  const outcome = await place.take(() =>
+    runJob(deps, running, vaultWindows, mention, acknowledgement),
+  );
   if (outcome === "ran" || !("receipt" in acknowledgement)) return;
 
   deps.log.info(`Dropped queued ${mention.eventId} in thread ${mention.thread.ts}`);
@@ -228,6 +248,7 @@ async function hardStop(
 async function runJob(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
+  vaultWindows: VaultWindows,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<void> {
@@ -257,9 +278,21 @@ async function runJob(
    * on where this Job's own desk is. Nothing has been written before that point.
    */
   let audit: AuditTrail | undefined;
+  /** The Job's working, kept for the Librarian — which does not share its Session. */
+  const transcript = recordTranscript();
+  /**
+   * This Job's view of the Vault: what was in it before, and what it has changed since.
+   *
+   * Undefined only if the Job failed before it could be opened, in which case nothing had
+   * run and nothing can have been written.
+   */
+  let vault: VaultWindow | undefined;
+  let workspaceDir: string | undefined;
+  let root: RootNote = NO_ROOT_NOTE;
 
   try {
     const workingDirectory = await prepareWorkspace(deps.config, mention.thread, deps.log);
+    workspaceDir = workingDirectory;
     audit = startAuditTrail({
       slack: deps.slack,
       log: deps.log,
@@ -270,6 +303,23 @@ async function runJob(
         servers: deps.config.mcpServers,
       }),
     });
+
+    // Opened before the engine starts, and it has to be: everything the Vault records
+    // about this Job is the difference between here and afterwards, so a window opened
+    // late would attribute the coworker's own earlier Notes to whatever ran next.
+    vault = await openVaultWindow({
+      vaultDir: deps.config.vaultDir,
+      log: deps.log,
+      clock: deps.clock,
+      thread: mention.thread,
+      jobId: mention.eventId,
+      windows: vaultWindows,
+    });
+
+    // The map, handed over rather than asked for — and stripped to links on the way in,
+    // because this is the one file that reaches every Job in every Thread (ADR-0004).
+    root = await readRootNote(deps.config.vaultDir);
+    for (const concern of rootNoteConcerns(root, deps.config.vaultDir)) deps.log.warn(concern);
 
     const recorded = await deps.sessions.get(mention.thread);
     const session = openSession(deps, mention.thread, recorded?.id, {
@@ -290,6 +340,8 @@ async function runJob(
       // telling it that it interrupted something would be telling it a false thing.
       queuedDuringPreviousJob:
         "waited" in acknowledgement && acknowledgement.waited.kind === "job-ahead",
+      vaultDir: deps.config.vaultDir,
+      root,
     });
 
     try {
@@ -304,6 +356,9 @@ async function runJob(
         audit.observe(event);
         // And the bounds count it. None of the three exists in the engine.
         bounds.observe(event);
+        // And the transcript keeps it, because the Librarian's pass is a separate call
+        // with none of this Session's context and has to be told what happened.
+        transcript.observe(event);
         // And the Turn boundaries are written down, so that a Job which stops here
         // leaves the next one able to tell that it did.
         await turns.observe(event);
@@ -339,30 +394,36 @@ async function runJob(
     }
   } catch (error) {
     failure = reasonFor(error);
-  } finally {
-    bounds.release();
-    // Unconditionally: the queue holds this Thread's next Job until this function's
-    // promise settles, so nothing else can have taken this entry in the meantime.
-    running.delete(threadKey(mention.thread));
   }
 
-  if (bounds.stoppedBy !== undefined) {
+  /**
+   * How the *work* ended, captured before curation runs.
+   *
+   * A stop landing during the Librarian's pass aborts the pass — the Job's own bound is
+   * what the pass runs on, deliberately, so that "stop" reaches the whole Job — and it
+   * must not turn a Job that finished into a Job that was stopped. The answer is already
+   * in hand at this point; what a late stop cancels is the tidying up.
+   */
+  const stoppedBy = bounds.stoppedBy;
+
+  if (stoppedBy !== undefined) {
     deps.log.warn(
       `Job ${mention.eventId} in thread ${mention.thread.ts} was stopped — ` +
-        `${stopSentence(bounds.stoppedBy)} Tokens spent: ${bounds.tokensSpent}.`,
+        `${stopSentence(stoppedBy)} Tokens spent: ${bounds.tokensSpent}.`,
     );
   }
-  deps.log.info(
-    `Job ${mention.eventId} finished in ${deps.clock.now() - startedAt}ms ` +
-      `(thread ${mention.thread.ts})`,
-  );
 
-  // Every Write record lands before the answer: the Thread has to read in the order
-  // things happened, and the answer is the last word on the Job.
+  // Whatever the work did to the Vault, recorded from the Vault itself and **before the
+  // answer**, because it happened before the answer. Runs for a stopped Job too: a Note
+  // written before the stop is still a Note, and stopping undid nothing.
+  if (vault !== undefined && audit !== undefined) await vault.settle(audit);
+
+  // Every Write record so far lands before the answer: the Thread has to read in the order
+  // things happened, and the answer is the last word on the work.
   await audit?.drain();
   const report: JobReport = reportFor({
     answer,
-    stoppedBy: bounds.stoppedBy,
+    stoppedBy,
     failure,
     plan,
     recorded: audit?.recorded ?? 0,
@@ -373,6 +434,96 @@ async function runJob(
   // and the status has stopped moving by the time anyone reads the result.
   await status.settle(report.outcome);
   await deps.slack.postMessage({ thread: mention.thread, text: report.text });
+
+  // Only now, with the answer delivered, does the coworker tidy up. Curation is
+  // best-effort and takes as long as it takes, so anything the person is waiting for has
+  // to be out of the way first — the spec's "the work is already done and reported" is a
+  // statement about this ordering. Whatever the pass files is recorded after the answer,
+  // which is also when it happened.
+  try {
+    await tidyUp(deps, mention, {
+      stoppedBy,
+      workspaceDir,
+      root,
+      transcript: transcript.text(),
+      answer,
+      signal: bounds.signal,
+      vault,
+      audit,
+    });
+  } finally {
+    bounds.release();
+    // Unconditionally: the queue holds this Thread's next Job until this function's
+    // promise settles, so nothing else can have taken this entry in the meantime.
+    running.delete(threadKey(mention.thread));
+    deps.log.info(
+      `Job ${mention.eventId} finished in ${deps.clock.now() - startedAt}ms ` +
+        `(thread ${mention.thread.ts})`,
+    );
+    vault?.close();
+  }
+}
+
+/**
+ * The Librarian's closing pass, and the record of anything it filed.
+ *
+ * Never throws: everything in here happens after the human has their answer, so a failure
+ * is a warning in the log and nothing else. That is not laxness — it is the difference
+ * between losing a tidy-up and losing the work it was tidying.
+ */
+async function tidyUp(
+  deps: CoworkerDeps,
+  mention: Mention,
+  job: {
+    stoppedBy: StopReason | undefined;
+    workspaceDir: string | undefined;
+    root: RootNote;
+    transcript: string;
+    answer: string;
+    signal: AbortSignal;
+    vault: VaultWindow | undefined;
+    audit: AuditTrail | undefined;
+  },
+): Promise<void> {
+  // Skipped for a Job that was stopped, and that is a judgement rather than a shortcut:
+  // someone who says "stop" and then watches their Notes get rewritten has not been
+  // listened to, and a bound that tripped means the transcript this pass would read is the
+  // transcript of something that did not finish.
+  if (job.stoppedBy !== undefined || job.workspaceDir === undefined) return;
+
+  const pass = await runLibrarianPass(
+    {
+      engine: deps.engine,
+      clock: deps.clock,
+      log: deps.log,
+      timeoutMs: deps.config.bounds.librarianTimeoutMs,
+      signal: job.signal,
+    },
+    {
+      vaultDir: deps.config.vaultDir,
+      workingDirectory: job.workspaceDir,
+      root: job.root,
+      request: mention.text,
+      transcript: job.transcript,
+      answer: job.answer,
+    },
+  );
+
+  if (pass.failure !== undefined) {
+    deps.log.warn(
+      `The Librarian pass for Job ${mention.eventId} did not finish: ${pass.failure}. ` +
+        "The work itself is unaffected; nothing may have been filed.",
+    );
+  } else {
+    deps.log.info(`Librarian pass for Job ${mention.eventId}: ${pass.said || "(nothing said)"}`);
+  }
+
+  // Even a pass that failed part-way may have written something, so the Vault is asked
+  // either way. A Note that exists and is unrecorded is the one outcome this must not have.
+  if (job.vault !== undefined && job.audit !== undefined) {
+    await job.vault.settle(job.audit);
+    await job.audit.drain();
+  }
 }
 
 /**
