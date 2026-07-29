@@ -4,10 +4,7 @@
 
 Skills are how this project gets non-MCP capability without writing a connector. [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md) says connectors are MCP configuration; a Skill is the other route — the shell plus a written procedure — chosen deliberately where standing up an MCP server is not worth it.
 
-**This ticket moved onto the critical path.** [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) made GitHub a Skill, so [build/09](09-github-connector.md) cannot start until the mechanism here exists. Skills are no longer the escape hatch for odd cases — they carry one of the project's two headline connectors, and the read-but-not-write guarantee below is what keeps a "do not merge" instruction from being editable by the thing it constrains.
-
 **Blocked by:** 07 — The Vault
-**Blocks:** 09 — GitHub as a Skill over `gh`
 
 **Status:** ready-for-agent, *after the verification block below*
 
@@ -40,7 +37,9 @@ Do **not** implement this as a post-Job hash check and revert. That is detection
 
 **Skills are not memory.** A Skill is a standing procedure a human maintains. What the coworker learns by *using* one is an ordinary Note, written by the Librarian in the normal way. Keeping these separate is what makes the authorship rule enforceable — if the coworker needed to append to Skills to do its job, the constraint would be relitigated within a week.
 
-~~**This does not reopen [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md).**~~ **It did, and [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) is the amendment.** The original note said a Skill is not a connector — no tool surface, no inventory to pin, no normalisation — and then GitHub became one anyway, because repository selection could not be expressed inside the MCP shape. The mechanical description still holds: a Skill is a written procedure plus the shell. What was wrong was the conclusion that this keeps Skills and connectors in separate categories. The project now has two connector routes, and the choice between them turns on whether the boundary needs to live in the credential (Skill) or in the tool surface (MCP).
+**This does not reopen [ADR-0005](../../../docs/adr/0005-connectors-are-mcp-config.md).**
+A Skill is not a connector: it has no MCP tool surface or connector lifecycle. It is a
+written procedure plus the shell, reserved for capabilities without a suitable MCP server.
 
 ## Comments
 
@@ -89,7 +88,3 @@ The criterion says "a person asks a question in Slack … and answers in the Thr
 - **No Slack leg in the same run.** The contract test drives the engine directly; the mention-in-answer-out path is covered at the top seam against `FakeEngine`. The two halves meet at `skillsForPrompt`, which is why the contract test was changed to use it — a test composing its own wording would have measured whether *some* prompt gets a Skill followed rather than whether the one the wrapper sends does.
 
 Worth knowing when build/13 writes the setup story: the database Skill's *content* is example prose adapted from plausible traps (replica lag, minor units, soft deletes) and has never met a real schema. It is also **not installed anywhere** — `assets/skills/` is a directory to copy, so a self-hoster who never copies it gets an empty Skills directory. Preflight's "none yet" message names `assets/skills` for that reason, but the operating manual is copied automatically and these are not, which is an inconsistency build/13 should settle rather than inherit.
-
-### What this leaves for build/09
-
-The mechanism GitHub needs now exists, and one thing about it is newly load-bearing in a way that is worth stating before the next ticket leans on it. **The read-but-not-writable guarantee is now the only thing standing between a poisoned Job and `gh pr merge`** — ADR-0006 removed layer 2 for GitHub, so the sentence "do not merge" in a Skill is one of the two remaining controls, and this ticket is what stops that sentence being editable by the thing it constrains. It is a kernel-enforced boundary rather than a wrapper check, which is stronger than the ticket assumed it would be able to promise. It is still a sentence in a Markdown file, which is weaker than the tool that used not to exist.

@@ -3,7 +3,7 @@
 One instance file, one MCP registry, and secrets in the environment.
 
 `open-agent.config.json` describes the instance: where the Vault is, what stops a runaway
-Job, which model, which GitHub App, and where its MCP registry lives. `mcp.json` is the
+Job, which model, and where its MCP registry lives. `mcp.json` is the
 single extensible registry for every MCP server. Both files **name** credentials by
 environment variable and never contain their values, exactly as a
 [Skill](../CONTEXT.md#skill) does. `.env` is the keyring.
@@ -28,11 +28,9 @@ accepted. Two severities, and the difference is deliberate:
 - **A report** describes an instance that will work. Version drift, the repository list, the
   bounds, the sandbox posture. Some are warnings — "this will behave in a way you may not
   have intended".
-- **A refusal** describes an instance whose boundaries are not the ones this documentation
-  claims. A connector whose tool surface nobody has reviewed, a Skills directory the agent
-  could rewrite, a GitHub App carrying `administration`. None is survivable, because in each
-  case the instance would run *perfectly* while being a different instance from the one
-  described here.
+- **A refusal** describes an instance that cannot satisfy its configuration: a missing
+  named credential, an unreachable connector, or a Skills directory the agent could
+  rewrite.
 
 ## The sections
 
@@ -152,8 +150,10 @@ does not exist from the coworker's point of view:
 
 | Blocked | Why |
 | --- | --- |
+| `merge_pull_request` | Publishes a branch into another branch. Not undoable from a Thread. |
 | `merge_diff` | Puts commits in a repository. Not undoable from a Thread. |
 | `submit_diff_review` | Approves someone's code in the coworker's name. |
+| `delete_file` | Removes repository content. |
 | Known Linear deletion tools | The deletion tools measured when the safety floor was written. |
 
 The criterion is not "dangerous" but **"can a human undo this after noticing it in the
@@ -166,54 +166,46 @@ new tool is dangerous from its name or MCP annotations. New capabilities are all
 default; operators can add tool names to `disabledTools` without maintaining a complete
 inventory.
 
-### `github`
+### GitHub through `mcp.json`
 
 ```json
 "github": {
-  "appIdEnvVar": "GITHUB_APP_ID",
-  "privateKeyPathEnvVar": "GITHUB_APP_PRIVATE_KEY_PATH",
-  "owner": "your-org",
-  "repositories": ["your-org/your-repo"]
+  "type": "streamable-http",
+  "url": "https://api.githubcopilot.com/mcp/",
+  "bearerTokenEnvVar": "GITHUB_TOKEN",
+  "httpHeaders": {
+    "X-MCP-Toolsets": "repos,issues,pull_requests",
+    "X-MCP-Exclude-Tools": "merge_pull_request,delete_file"
+  },
+  "writeTools": [
+    "add_issue_comment",
+    "create_pull_request",
+    "issue_write",
+    "pull_request_review_write",
+    "update_pull_request"
+  ],
+  "disabledTools": ["merge_pull_request", "delete_file"],
+  "enabled": true
 }
 ```
 
-A **GitHub App**, not a token ([ADR-0006](adr/0006-github-is-a-skill-over-gh.md)). You pick
-the repositories in GitHub's installation UI, and that picker is the boundary — an
-installation token cannot reach a repository the installation was not granted.
+GitHub is an ordinary connector using GitHub's official MCP server
+([ADR-0007](adr/0007-github-is-an-official-mcp-server.md)). Create a fine-grained personal
+access token limited to the repositories and permissions this instance needs and put it in
+`GITHUB_TOKEN`. The example ships disabled so copying it does not require a GitHub token;
+change `enabled` to `true` when ready.
 
-- **`owner`** is only needed when the App is installed in more than one place. With several
-  installations and no `owner`, startup refuses rather than picking one: which account the
-  coworker acts on is the difference between two audiences.
-- **`repositories`** is a *statement of intent*, not an allow-list — nothing of ours sits
-  between the coworker and `gh`. Startup compares it against what the installation actually
-  grants and refuses on a mismatch, because the likeliest mistake on this path is that the
-  picker and this file disagree, and its natural failure is a 404 deep inside a `gh` call
-  three hours into a Job.
+The server-side exclusion header avoids advertising merge and deletion tools. The local
+`disabledTools` list and fixed safety floor repeat the restriction in Codex's generated
+configuration. This duplication is intentional defence-in-depth, not a second connector
+implementation. Git checkout and push remain ordinary local `git`; GitHub metadata, issues,
+reviews, and pull-request creation use MCP.
 
-Leave the whole section out and GitHub is simply not configured. Startup says so and carries
-on, which is a legitimate way to run this.
+## Version reporting
 
-**What startup checks:** that `gh` is on `PATH` (a missing one is fatal — since ADR-0006 the
-coworker reaches GitHub by running it), that the App's private key can sign, that an
-installation token can actually be **minted**, what repositories that token reaches, and
-that the App does not carry `administration`, `members`, or `workflows`. Each of those three
-is a route around every other control.
-
-**It also states what is missing.** An instance with GitHub configured runs **without layer
-2 entirely**: there is no tool surface to disable and no inventory to pin, so nothing
-structurally prevents it from merging a pull request. What stands in its place — the Skill's
-instruction, the `AGENTS.md` policy, the pre-push hook, branch protection — is weaker than a
-tool that does not exist. That warning prints on every startup, deliberately.
-
-## Version pins
-
-`RECORDED_CODEX_VERSION` and `RECORDED_GH_VERSION` in `src/config.ts`. Neither is a pin that
-refuses to start: both report what is installed and warn on drift.
+`RECORDED_CODEX_VERSION` in `src/config.ts` records the version this project last exercised.
+It does not refuse startup: preflight reports the installed version and warns on drift.
 
 Codex has no pin because v1 runs against whatever you installed to log in with, and it ships
-multiple alphas a day — so the warning is the minimum that must survive that decision. `gh`
-has no pin because it is stable in a way Codex is not, and locking somebody out over a minor
-version would have nothing behind it.
-
-If either drifts and the coworker starts behaving strangely, this is the first thing to
-suspect. `pnpm test:contract` checks the engine still behaves as expected.
+multiple alphas a day — so the warning is the minimum that must survive that decision.
+`pnpm test:contract` checks the engine still behaves as expected.

@@ -65,7 +65,6 @@ describe("the configuration file", () => {
 
     expect(config.bounds).toEqual(BOUND_DEFAULTS);
     expect(config.mcpServers).toEqual([]);
-    expect(config.github).toBeUndefined();
     expect(path.basename(config.notesDir)).toBe(NOTES_DIRNAME);
     expect(config.engine.reasoningEffort).toBe("low");
   });
@@ -146,18 +145,21 @@ describe("the configuration file", () => {
     ) as unknown;
     const { dir, filePath } = await configFile(example);
     await writeMcp(dir, mcpExample);
-    const keyPath = path.join(dir, "app.pem");
-    await writeFile(keyPath, "-----BEGIN RSA PRIVATE KEY-----\nnot-real\n-----END…\n", "utf8");
 
     const config = await loadConfig({
       ...SLACK_TOKENS,
       CONFIG_PATH: filePath,
-      GITHUB_APP_ID: "1234567",
-      GITHUB_APP_PRIVATE_KEY_PATH: keyPath,
       LINEAR_API_KEY: "lin_api_test",
     });
 
-    expect(config.mcpServers[0]?.name).toBe("linear");
+    expect(config.mcpServers.map((server) => server.name)).toEqual([
+      "github",
+      "linear",
+      "example-local-server",
+    ]);
+    const github = config.mcpServers.find((server) => server.name === "github");
+    expect(github?.enabled).toBe(false);
+    expect(github?.disabledTools).toEqual(["merge_pull_request", "delete_file"]);
   });
 
   it("says which file was not valid JSON", async () => {
@@ -199,56 +201,6 @@ describe("credentials, which the file names and never holds", () => {
     expect(config.slack.botToken).toBe("xoxb-work");
   });
 
-  it("reads the GitHub App's private key from the file the environment points at", async () => {
-    const { dir, filePath } = await configFile({ github: { repositories: ["acme/web"] } });
-    const keyPath = path.join(dir, "app.pem");
-    await writeFile(keyPath, "-----BEGIN RSA PRIVATE KEY-----\nnot-real\n-----END…\n", "utf8");
-
-    const config = await loadConfig({
-      ...SLACK_TOKENS,
-      CONFIG_PATH: filePath,
-      GITHUB_APP_ID: "1234567",
-      GITHUB_APP_PRIVATE_KEY_PATH: keyPath,
-    });
-
-    // A path rather than the PEM itself: asking for a multi-line key inside a `.env` is
-    // asking for a credential to be mangled by quoting, and every mangling looks like a
-    // signing bug.
-    expect(config.github?.appId).toBe("1234567");
-    expect(config.github?.privateKeyPem).toContain("PRIVATE KEY");
-    expect(config.github?.repositories).toEqual(["acme/web"]);
-  });
-
-  it("refuses to start when the private key file is not there", async () => {
-    const { dir, filePath } = await configFile({ github: {} });
-
-    const failure = await loadConfig({
-      ...SLACK_TOKENS,
-      CONFIG_PATH: filePath,
-      GITHUB_APP_ID: "1234567",
-      GITHUB_APP_PRIVATE_KEY_PATH: path.join(dir, "absent.pem"),
-    }).catch((error: unknown) => error);
-
-    expect(String(failure)).toContain("absent.pem");
-  });
-
-  it("refuses a private key file that is not a private key", async () => {
-    const { dir, filePath } = await configFile({ github: {} });
-    const keyPath = path.join(dir, "app.pem");
-    await writeFile(keyPath, "ghp_a_personal_access_token\n", "utf8");
-
-    const failure = await loadConfig({
-      ...SLACK_TOKENS,
-      CONFIG_PATH: filePath,
-      GITHUB_APP_ID: "1234567",
-      GITHUB_APP_PRIVATE_KEY_PATH: keyPath,
-    }).catch((error: unknown) => error);
-
-    // Names the file and nothing of its contents: a preflight message is read in a
-    // terminal that scrolls into somebody's screenshot.
-    expect(String(failure)).toContain(keyPath);
-    expect(String(failure)).not.toContain("ghp_");
-  });
 });
 
 describe("connectors, which the file is the only record of", () => {

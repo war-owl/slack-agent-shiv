@@ -10,7 +10,6 @@ import { isStopRequest } from "./jobs/request.ts";
 import { recordTranscript } from "./jobs/transcript.ts";
 import type { Clock } from "./ports/clock.ts";
 import type { Engine, EngineSession, PlanStep, SessionOptions } from "./ports/engine.ts";
-import type { GitHubAppProbe, GitHubCli } from "./ports/github.ts";
 import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
 import type { SessionStore } from "./ports/sessions.ts";
@@ -55,15 +54,6 @@ export interface CoworkerDeps {
   /** The `thread_ts → session id` mapping. The wrapper's only durable state. */
   sessions: SessionStore;
   inventoryProber: McpInventoryProber;
-  /**
-   * The GitHub App and the `gh` binary — both used at startup and nowhere else.
-   *
-   * GitHub is reached by Skill over the shell (ADR-0006), so nothing in the Job path asks
-   * these anything: the coworker runs `gh` itself, against a credential helper that mints
-   * its own tokens. What preflight needs them for is to establish that it could.
-   */
-  github: GitHubAppProbe;
-  gh: GitHubCli;
   log: Logger;
   /**
    * Where named credentials are read from — the one store, shared with whatever was

@@ -8,11 +8,11 @@ Two things separate a Skill from a Note. A Note is *belief* — what the coworke
 true. A Skill is *instruction* — it directs behaviour. And a Skill is **human-authored
 only**: the coworker reads and follows it, and cannot write one.
 
-Skills are one of the two ways the coworker reaches an outside system. The other is an
-MCP server named in configuration. GitHub is a Skill ([ADR-0006](adr/0006-github-is-a-skill-over-gh.md));
-Linear is an MCP server ([ADR-0005](adr/0005-connectors-are-mcp-config.md)). The choice
-turns on where the boundary has to live — see [the security model](#the-security-model),
-which is the part of this document to read if you only read one.
+Skills let the coworker use non-MCP capabilities through the shell. Connectors are MCP
+servers named in `mcp.json`; GitHub, Linear, and third-party servers all use that one path
+([ADR-0005](adr/0005-connectors-are-mcp-config.md)). See
+[the security model](#the-security-model), which is the part of this document to read if
+you only read one.
 
 ## Layout
 
@@ -109,9 +109,8 @@ the procedure makes reachable — because it acts unattended, cannot be asked to
 and a prompt injection in the data it is reading is a thing that happens.
 
 A read-only database role is a **requirement**, not a recommendation. A read-write role
-nobody intends to write with is a read-write role. The same logic is why GitHub's Skill
-rests on a GitHub App installation scoped to selected repositories rather than a token
-with blanket scope ([ADR-0006](adr/0006-github-is-a-skill-over-gh.md)).
+nobody intends to write with is a read-write role. MCP connectors instead retain layer 2:
+known irreversible tools are removed from the tool surface.
 
 ### Credentials
 

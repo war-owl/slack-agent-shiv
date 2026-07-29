@@ -18,23 +18,23 @@ import type { McpServerConfig } from "../ports/mcp.ts";
  *   servers may add and remove tools without blocking startup. The irreversible tool names
  *   already measured by this project stay unavailable, and configuration can add more.
  *
- * **This covers the MCP tool path and nothing else.** GitHub is reached by Skill over the
- * `gh` CLI (ADR-0006), so `merge_pull_request` and `delete_file` are not on this list — not
- * because they became safe, but because there is no longer a server to disable them on.
- * That is the weakest point in the design and preflight says so out loud.
+ * **This covers the MCP tool path and nothing else.** GitHub's official MCP server uses the
+ * same floor as every other connector. Raw shell access is separate, which is why branch
+ * protection remains the repository boundary.
  */
 
 /**
  * Blocked by exact name, independent of any server inventory.
  *
- * Both are Linear's, and both are the same mistake in different clothes: `merge_diff` puts
- * commits into a repository, and `submit_diff_review` approves someone's code in the
- * coworker's name. Reading diffs and commenting on them stays allowed — nobody scoped a
- * code-reviewing coworker into v1, and the two halves of that surface are separable.
+ * GitHub merge/file deletion and Linear merge/review/deletion names already reviewed by
+ * this project. Reading, commenting, opening a pull request, and pushing a feature branch
+ * remain available.
  */
 const BLOCKED_BY_NAME: readonly string[] = [
+  "merge_pull_request",
   "merge_diff",
   "submit_diff_review",
+  "delete_file",
   "delete_attachment",
   "delete_comment",
   "delete_diff_comment",

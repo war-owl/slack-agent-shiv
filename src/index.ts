@@ -1,8 +1,6 @@
 import { loadConfig } from "./config.ts";
 import { createCoworker } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
-import { createGitHubAppProbe, unconfiguredGitHubApp } from "./github/app.ts";
-import { ghCli } from "./github/cli.ts";
 import { createMcpInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
 import type { Logger } from "./ports/log.ts";
@@ -31,11 +29,6 @@ async function main(): Promise<void> {
     // One credential store, handed to everything that reads one — so the check and the thing
     // it checks cannot end up reading different environments.
     inventoryProber: createMcpInventoryProber(process.env),
-    github:
-      config.github === undefined
-        ? unconfiguredGitHubApp
-        : createGitHubAppProbe({ credentials: config.github, clock: systemClock }),
-    gh: ghCli,
     env: process.env,
     log,
   });

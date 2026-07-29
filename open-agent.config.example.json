@@ -18,13 +18,5 @@
   "bounds": {
     "maxConcurrentJobs": 4,
     "librarianTimeoutMs": 300000
-  },
-  "github": {
-    "appIdEnvVar": "GITHUB_APP_ID",
-    "privateKeyPathEnvVar": "GITHUB_APP_PRIVATE_KEY_PATH",
-    "owner": "your-org",
-    "repositories": [
-      "your-org/your-repo"
-    ]
   }
 }

@@ -1,4 +1,4 @@
-import { RECORDED_CODEX_VERSION, RECORDED_GH_VERSION } from "../../src/config.ts";
+import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
 import type { Clock, Stoppable } from "../../src/ports/clock.ts";
 import type {
   Engine,
@@ -8,12 +8,6 @@ import type {
   SandboxPosture,
   SessionOptions,
 } from "../../src/ports/engine.ts";
-import type {
-  GitHubAppProbe,
-  GitHubAppReach,
-  GitHubCli,
-  GitHubInstallation,
-} from "../../src/ports/github.ts";
 import type { McpInventory, McpInventoryProber, McpServerConfig } from "../../src/ports/mcp.ts";
 import type {
   PostMessage,
@@ -500,47 +494,5 @@ export class FakeInventoryProber implements McpInventoryProber {
     this.probed.push(server.name);
     if (this.failure) throw this.failure;
     return this.inventories.get(server.name) ?? { tools: [] };
-  }
-}
-
-/**
- * A GitHub App installation that resolves, unless a test says otherwise.
- *
- * The default is the shape the project describes: an App installed on one account with two
- * selected repositories and the permissions the shipped manifest declares. Every startup
- * check on this path is about a *departure* from that shape, so the departure is what a test
- * writes down.
- */
-export class FakeGitHubApp implements GitHubAppProbe {
-  /** Every probe, so a test can assert a token really was minted at startup. */
-  readonly probes: { owner: string | undefined }[] = [];
-  /** Set to make the whole path fail — an uninstalled App, an unapproved org, a bad key. */
-  failure: Error | undefined;
-
-  installation: GitHubInstallation = {
-    id: 42_000_001,
-    account: "acme",
-    repositorySelection: "selected",
-    repositories: ["acme/web", "acme/infra"],
-    permissions: { contents: "write", issues: "write", pull_requests: "write" },
-  };
-
-  async probe(options: { owner?: string | undefined }): Promise<GitHubAppReach> {
-    this.probes.push({ owner: options.owner });
-    if (this.failure) throw this.failure;
-    return {
-      appSlug: "acme-coworker",
-      installation: this.installation,
-      tokenExpiresAt: "2026-07-29T12:00:00Z",
-    };
-  }
-}
-
-/** The `gh` on PATH. `undefined` stands in for there being none. */
-export class FakeGitHubCli implements GitHubCli {
-  versionToReport: string | undefined = RECORDED_GH_VERSION;
-
-  async version(): Promise<string | undefined> {
-    return this.versionToReport;
   }
 }

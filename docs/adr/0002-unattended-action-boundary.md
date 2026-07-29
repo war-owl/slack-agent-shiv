@@ -6,7 +6,10 @@ status: accepted
 
 The coworker acts unattended ([ADR-0001](0001-codex-cli-via-exec-and-sdk.md)) while reading untrusted input from Slack, GitHub, and Linear, so there is no human between a crafted issue comment and an action. We bound this in three layers: the coworker may do **anything a human can undo after the fact** but not the known irreversible actions (`merge_pull_request`, `merge_diff`, `submit_diff_review`, `delete_file`, and Linear's known delete tools); those exact tools are enforced as a **deny-list** for MCP servers; and because the agent has shell access and the token doubles as the git password, the irreversible actions are made impossible **server-side by branch protection on the default branch** — the tool policy is defence-in-depth, not the boundary.
 
-**Amended again by [ADR-0006](0006-github-is-a-skill-over-gh.md), and this one weakens the structure rather than moving it.** GitHub is no longer an MCP connector, so **layer 2 does not cover it**: there is no tool surface to deny-list and no `tools/list` to pin. GitHub runs on layer 1 and layer 3 alone — and since layer 3 is plan-gated and warns rather than refuses, a free-plan self-hoster in private repositories now has **no structural boundary on GitHub**. What is gained in exchange is at layer 3's own level: a GitHub App installation is scoped to **selected repositories**, so the blast radius narrows by repository even as it widens by tool. Read every mention of the GitHub deny-list below as historical.
+**Amended by [ADR-0007](0007-github-is-an-official-mcp-server.md): GitHub returns to layer 2.**
+Its official MCP server is configured with `merge_pull_request` and `delete_file` disabled.
+A fine-grained token limits repository reach. Shell access can still bypass the MCP tool
+surface, so branch protection remains the server-side boundary rather than the deny-list.
 
 **Amended 2026-07-29: MCP tool inventories are deliberately not pinned.** An enabled
 connector is probed for connectivity and its current tool count is reported, but tools may
@@ -24,13 +27,12 @@ extensible connector system.
 1. **Policy** — anything undoable is permitted; the irreversible list above is not.
 2. **Exact-name deny-list** — known irreversible MCP tools plus per-server
    `disabledTools`. There is no inventory pin and new tools are allowed automatically.
-   **MCP only, as of [ADR-0006](0006-github-is-a-skill-over-gh.md)**; GitHub left the
-   tool path and took its deny-list with it.
+   GitHub and Linear both use this layer through MCP.
 3. **Branch protection on the default branch** — require a pull request before merging, require at least one approving review, and **disallow bypassing**, administrators included. Merge and force-push to the default branch then fail server-side for every actor, the coworker's token among them.
 
-~~The granted GitHub scope is `repo`.~~ **Superseded by [ADR-0006](0006-github-is-a-skill-over-gh.md): a GitHub App installation replaces the classic PAT**, and the withheld scopes become permissions the App manifest simply does not declare — `administration`, `members`, `workflows`. Same intent, now visible in a reviewable file rather than in a checkbox ticked once. The paragraph below records the reasoning, which carries over unchanged.
-
-The granted GitHub scope is `repo`. **`delete_repo`, `admin:org`, and `workflow` are withheld** — repository deletion and organisation administration are thereby impossible at the credential after all, and workflow-file edits are excluded because a writable CI definition is an execution path around every other control.
+GitHub uses a **fine-grained PAT** restricted to selected repositories and only the
+permissions needed for repository contents, issues, and pull requests. Administration,
+organisation management, and workflow modification are withheld.
 
 ## Considered options
 
@@ -49,7 +51,9 @@ The granted GitHub scope is `repo`. **`delete_repo`, `admin:org`, and `workflow`
 - **Local git hooks sit inside layer 2, not beside layer 3.** A repo-managed `pre-push` hook is worth shipping — it is the only mechanism that covers free private repositories, non-default branches, and repositories the self-hoster does not administer. But it is **not a boundary**: `--no-verify` skips it unconditionally, `core.hooksPath` can be overridden per invocation, `workspace-write` lets the agent edit the hook itself, and the PAT in the environment reaches the merge endpoint over `curl` without touching git at all. It guards against accident and drift, which are the common failure modes, and contributes nothing against the prompt-injection case this ADR is written for. Implementation must be **stdin-driven** — judging the destination ref and `git merge-base --is-ancestor` — because the obvious command-line-inspecting version is defeated by `git push origin HEAD:main` and by `+refspec` forcing. Measured in [`research/local-git-enforcement.md`](../../.scratch/slack-coworker/research/local-git-enforcement.md).
 - **Force-push to feature branches remains reachable.** Those are the coworker's own branches; losing one costs a redo. Accepted.
 - **`delete_file` is not actually irreversible** and stays on the deny-list only as defence-in-depth — over git it is an ordinary commit, recoverable from history.
-- ~~**A classic PAT can use the Search API**, so the coworker keeps issue search. The security-versus-capability trade the project was carrying resolves in favour of capability, with the security recovered at the repository instead.~~ **The trade is dissolved rather than resolved** ([ADR-0006](0006-github-is-a-skill-over-gh.md)): `/search/issues` accepts **installation access tokens**, so the coworker keeps issue search *and* gets per-repository scoping — the two PAT types offered these only one at a time. Nothing is paid for search any more.
+- **GitHub search follows the official server and token capabilities.** If a narrowly scoped
+  token cannot perform a search, the project accepts that limitation rather than broadening
+  the credential or creating a special authentication path.
 - **MCP annotations are not a portable safety primitive.** Measured: Linear flags 18 of 57 tools destructive; GitHub flags exactly one (`delete_file`) and leaves `merge_pull_request` and `push_files` unflagged. The deny-list is therefore hand-curated.
 - **Linear has no equivalent third layer.** Its API key carries whatever the user can do, and there is no repository-shaped thing to protect, so the Linear half runs on layers 1 and 2 alone. That was equally true before this amendment, but it is now the weaker half and should be documented as such.
 - **Linear's `save_*` tools are upserts.** "May create but not modify" is not expressible at tool granularity — only at argument granularity — so that line is deliberately not drawn. GitHub splits create/update; Linear does not. Do not assume symmetry between connectors.

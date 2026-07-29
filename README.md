@@ -24,9 +24,10 @@ reading one, which is measured and written down in
 
 Startup now checks itself: credentials, versions, and — for any MCP connector you configure
 — that it can be reached, with the known irreversible tools disabled.
-A GitHub App is validated the same way. What is not built yet is the half that *uses* those:
-the GitHub Skill ([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and
-Linear ([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
+GitHub and Linear use that same connector path. GitHub is configured against GitHub's
+official MCP server; the remaining work is live end-to-end verification
+([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and the Linear workflow
+([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
@@ -45,15 +46,14 @@ pnpm start
 ```
 
 **`.env` holds credentials and nothing else.** `open-agent.config.json` describes the
-instance — the Vault, bounds, model, GitHub App, and the path to `mcp.json`.
+instance — the Vault, bounds, model, and the path to `mcp.json`.
 `mcp.json` is the one extensible registry for every MCP server. It supports remote
 Streamable HTTP and local stdio servers and names environment variables rather than
 containing their secret values. With neither configuration file you get a Slack coworker
 with a Vault and no connectors. See [docs/configuration.md](docs/configuration.md).
 
-**Startup either runs or tells you exactly what is wrong.** A missing token, a `gh` that
-isn't installed, an unreachable connector, or a GitHub App that isn't installed where you
-think it is is found before the first mention. MCP servers may add or remove tools without
+**Startup either runs or tells you exactly what is wrong.** A missing token or unreachable
+connector is found before the first mention. MCP servers may add or remove tools without
 blocking startup.
 
 The only thing the instance keeps for itself is `.state/sessions.json`: which Codex

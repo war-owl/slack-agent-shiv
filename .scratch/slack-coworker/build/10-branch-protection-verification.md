@@ -4,9 +4,12 @@
 
 This is the third layer of the action boundary. It became per-repository and opt-in when fine-grained PATs were ruled out, so this check is the entire mitigation for that weakening — it is not a nicety and must not be dropped for convenience.
 
-**And it is now more than that.** [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) moved GitHub out of the MCP tool path, which removed **layer 2** for GitHub entirely — no deny-list and nothing that makes `gh pr merge` unavailable. Branch protection is no longer the third of three layers on GitHub; it is the **second of two**, and the other one is a sentence in a Markdown file. Everything below that reads as "belt and braces" should be read as "the braces".
+**Amended by [ADR-0007](../../../docs/adr/0007-github-is-an-official-mcp-server.md).**
+GitHub is back in the MCP tool path, where `merge_pull_request` and `delete_file` are
+disabled. Branch protection remains necessary because shell access and a leaked token can
+bypass MCP entirely, but it is again the third of three layers.
 
-**Blocked by:** 09 — GitHub as a Skill over `gh`; and Checks A and B on [Provision a Slack app, a test workspace, and GitHub/Linear tokens](../issues/05-provision-accounts-and-tokens.md)
+**Blocked by:** 09 — GitHub through the official MCP server; and Checks A and B on [Provision a Slack app, a test workspace, and GitHub/Linear tokens](../issues/05-provision-accounts-and-tokens.md)
 
 **Status:** ready-for-agent
 
@@ -16,11 +19,13 @@ This is the third layer of the action boundary. It became per-repository and opt
 - [ ] The protection checked for is: require a pull request before merging, require at least one approving review, and disallow bypassing including for administrators
 - [ ] The check queries `GET /repos/{o}/{r}/rules/branches/{default_branch}` for effective rules — **settled by ticket 05**, and mechanism-agnostic, so classic protection and rulesets arrive in one shape
 - [ ] Bypass state is read separately via `GET /repos/{o}/{r}/rulesets/{ruleset_id}` and asserted as **`current_user_can_bypass == "never"`** — it is *not* present on the `/rules` response
-- [ ] Because startup is permitted without layer 3, the **guardrails are load-bearing rather than supplementary** and must all be present before this ticket closes: ~~the layer-2 deny-list,~~ the `pre-push` hook below, the git-safety policy block in `AGENTS.md`, and — replacing the deny-list, which no longer exists for GitHub — the **"do not merge" instruction in the GitHub Skill** and the **`gh` shim that records what was actually run** ([build/09](09-github-connector.md)). Landing the warning without these would be strictly worse than the original refuse-on-unprotected behaviour
+- [ ] Because startup is permitted without layer 3, the remaining guardrails are present:
+  the MCP deny-list, the `pre-push` hook below, and the git-safety policy in `AGENTS.md`
 - [ ] Documentation states plainly that **the layer-2 substitutes are weaker than what they replace.** A deny-listed tool did not exist; a Skill that says "do not merge" is a sentence the model may disregard and a compromised issue comment may argue against. This is the most-weakened point in the whole action boundary and should be named as such rather than buried in a list
 - [ ] A repo-managed `pre-push` hook is installed on every checkout the wrapper creates, blocking pushes to the default branch, non-fast-forwards, and remote deletions — **stdin-driven**, judging the destination ref and `git merge-base --is-ancestor`, never the command line. See [`research/local-git-enforcement.md`](../research/local-git-enforcement.md) for the tested script and the two ways the obvious version fails
 - [ ] Documentation states plainly that the hook is **defence-in-depth, not a boundary** — `--no-verify`, `core.hooksPath`, an editable hook file under `workspace-write`, and `curl` to the merge endpoint all bypass it
 - [ ] Verified against a real repository: an attempt to merge to the protected default branch with the coworker's own token fails
-- [ ] Documentation states plainly that **Linear has no equivalent third layer** and runs on the policy and deny-list alone, so a self-hoster can calibrate what they connect rather than assume symmetry — and that the two connectors are now weak in **opposite** ways: Linear has a deny-list and no repository-shaped thing to protect, GitHub has protection available and no deny-list at all
+- [ ] Documentation states plainly that **Linear has no equivalent third layer** and runs
+  on policy and the MCP deny-list alone
 
 > ~~If wayfinder ticket 05 Check A finds that bypass-disabled protection does **not** bind a repository admin…~~ **Check A has run and passed** — a ruleset with `bypass_actors: []` blocks an admin's merge (`405`) and force-push (`GH013`). ADR-0002 does not reopen. What did change is Check B: protection is unavailable on free private repos via *either* mechanism. **Resolved by decision — the instance warns and runs rather than refusing**, on the grounds that a self-hoster should not be locked out by a paywall they cannot clear. The consequence is that this ticket's guardrails stop being belt-and-braces and become the actual mitigation.

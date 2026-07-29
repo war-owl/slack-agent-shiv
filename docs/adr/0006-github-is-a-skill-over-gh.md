@@ -1,61 +1,19 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0007-github-is-an-official-mcp-server.md
 ---
 
 # GitHub is a Skill over `gh`, authenticated by a GitHub App
 
-GitHub stops being an MCP connector. It becomes a **human-authored [Skill](../../CONTEXT.md#skill) over the `gh` CLI**, authenticated by a **GitHub App** whose repository access the self-hoster selects in GitHub's own installation UI. MCP remains the extension route for every other service, so the project now has two: **MCP servers in configuration** for anything the ecosystem already publishes, and **Skills** for anything reached by shell — with GitHub deliberately moved to the second.
+This decision was superseded by
+[ADR-0007](0007-github-is-an-official-mcp-server.md) before its runtime path was built.
 
-The ask this answers is *selecting the repository and the access*, and the previous shape could not express it. A classic PAT carries blanket `repo` over every repository its owner can see, and [ADR-0005](0005-connectors-are-mcp-config.md) puts the wrapper outside the tool path, so nothing of ours could narrow what Codex called. Repository selection had nowhere to live. A GitHub App installation puts it where it is actually enforced — at the credential, chosen in GitHub's UI, unforgeable from inside a Job.
+The design introduced a special GitHub App probe, installation-token minting, a future
+credential helper, a GitHub Skill, a `gh` audit shim, and special preflight behavior. It
+successfully narrowed repository access at the credential, but duplicated connector
+machinery while the project already had a generic MCP seam. At supersession time only the
+startup probe existed; Jobs still had no App-backed authentication for real GitHub work.
 
-## What this buys
-
-- **Repository selection is GitHub's, not ours.** An installation is granted specific repositories, and an installation token may be narrowed further per request via `repositories` / `repository_ids` (up to 500). Documented and load-bearing: *"The installation access token cannot be granted access to repositories that the installation was not granted access to."* A Job cannot widen its own reach by asking differently.
-- **Search survives without the compromise.** `/search/issues` accepts installation access tokens. This dissolves the trade [ADR-0002](0002-unattended-action-boundary.md) was carrying: the project chose a classic PAT *because* fine-grained tokens could not search, and paid blanket `repo` scope for it. That payment is no longer necessary — the coworker keeps issue search **and** gains per-repository scoping, which the two PAT types offered only one at a time.
-- **Credentials are short-lived.** Installation tokens expire after one hour, against a PAT that lives until revoked.
-- **The scoped-credential requirement is already written down.** [build/15](../../.scratch/slack-coworker/build/15-skills.md) requires that anything reached by Skill have a genuinely scoped credential, because a Skill sits outside the tool path. The App installation *is* that scoping. The two halves of this decision hold each other up.
-
-## What it costs
-
-Three real regressions. They are accepted, not solved, and the setup story must say so plainly.
-
-- **Layer 2 disappears for GitHub.** The deny-list is per-server `disabled_tools` in Codex configuration. With no MCP server there is no tool surface to disable — and the shell has no equivalent chokepoint. GitHub now runs on **layer 1** (policy, stated in `AGENTS.md` and in the Skill) and **layer 3** (branch protection). Because [build/10](../../.scratch/slack-coworker/build/10-branch-protection-verification.md) makes layer 3 plan-gated and warn-rather-than-refuse, a self-hoster on a free plan working in private repositories now has **no structural boundary on GitHub at all** — where the MCP shape at least denied them the merge tool. This is the sharp edge of this ADR.
-- **Audit degrades from exact to pattern-matched.** [build/04](../../.scratch/slack-coworker/build/04-audit-writes.md) classifies MCP tool calls exactly and shell commands only by pattern, and measured that a shell call arrives as `/bin/zsh -lc "…"` with a whole `&&` chain in one item. Every GitHub Write is now such a call. The Thread is the project's only accountability record, so this weakens the spine rather than a detail. Mitigated — not fixed — by a **`gh` shim early on `PATH` that records every invocation** for the audit channel to read; `curl`, `gh api`, and the raw binary all go around it, so it is defence-in-depth for the record, never a boundary.
-- **Token lifetime collides with Job duration, and the collision must be absorbed entirely inside the wrapper.** Jobs run for hours; installation tokens last one hour. A PAT never expired mid-Job. This is an engineering cost, **not** a property the self-hoster may ever experience — see the connect-and-forget requirement below.
-
-## Connect and forget is a requirement, not an aspiration
-
-**The self-hoster installs the App once and never touches GitHub authentication again.** No refresh to run, no secret to rotate on a schedule, no expiry to notice. This is a stated product requirement and it outranks implementation convenience.
-
-It is also *better* than what it replaces, which is worth saying because "one-hour token" reads like a regression and is the opposite: a classic PAT is pushed toward a 30/60/90-day expiry, organisations can forbid non-expiring ones, and a lapsed PAT stops the coworker until a human issues another. The App's private key has no expiry at all. **The short-lived thing is the derived token, not the connection.**
-
-**Mechanism: the Job never holds a token.** A credential-helper script lives outside the sandbox's writable root — the same placement as a Skill, so the agent can execute it but not edit it — and mints a fresh installation token on demand. `git` reaches it through `credential.helper` and `gh` through the same script. No token sits in the environment for the life of a Job, so there is no expiry to straddle and no refresh timer to get wrong. The rejected alternative was injecting a token at Job start and refreshing it in place: simpler to write, and it fails precisely when a long Job is most expensive to lose.
-
-**What cannot be forgotten**, none of it recurring: adding a repository later means revisiting the installation, which is the repo picker working as intended; changing declared permissions requires the installer to accept the new set; an org-owned repository needs one owner approval. The private key must be stored securely but is on no rotation schedule.
-
-**Accepted in exchange for the repo picker.** Per-repository scoping exists only on App installations, and installations issue only short-lived tokens — so a single never-expiring string and repository selection are mutually exclusive. The minting is the price of selection, paid in the wrapper's code rather than in the self-hoster's attention.
-
-## Considered options
-
-- **A first-party MCP server we own.** Wrapping the GitHub API in our own stdio server would have kept the wrapper *in* the tool path: repository allow-lists enforceable in code, argument-level checks that [ADR-0005](0005-connectors-are-mcp-config.md) called structurally unavailable, and merge simply not existing as a tool rather than being deny-listed. Rejected on the same reasoning ADR-0005 used against a proxy — a whole component to build, secure, and keep synchronised — and because it re-imports the tool-surface maintenance the MCP decision was made to avoid. It remains the strongest option if the audit or boundary regressions above prove intolerable in practice; that is the reopen trigger.
-- **GitHub's hosted MCP server plus a wrapper-side repository allow-list.** Cheapest, and keeps layer 2 intact. Rejected because the allow-list would be unenforceable theatre: outside the tool path it constrains what we *tell* the model, not what the model can *call*, and a document that looks like a boundary but is not is worse than none.
-- **Classic PAT plus a configured repository list.** Keeps ADR-0002 as amended and needs no new auth machinery. Rejected: it is the shape whose inability to express repository selection prompted this change.
-
-## Consequences
-
-- **[ADR-0005](0005-connectors-are-mcp-config.md) is amended, not withdrawn.** "Connectors are MCP configuration" still governs Linear and every third-party service; GitHub is a named carve-out, justified by being the one integration deep enough to warrant its own procedure. Third-party extension is still "point it at an MCP server", now with "or write a Skill" beside it.
-- **The git/MCP seam dissolves.** ADR-0005 called *git for the filesystem, MCP for the pull request* a deliberate seam. Both halves are now the shell: the branch is pushed with git and the pull request opened with `gh`, authenticated by the same installation token. [build/12](../../.scratch/slack-coworker/build/12-git-checkout-and-pull-request.md) survives as a ticket — the checkout, the push boundary, and the force-push behaviour are real work — but its title and its seam are rewritten.
-- **Preflight changes shape for GitHub.** Instead of probing MCP connectivity, the App's
-  credentials are validated, the installation resolves, the selected repositories are
-  enumerated and reported, `gh` is present, and a token can actually be minted. **Amended
-  by implementation ([build/08](../../.scratch/slack-coworker/build/08-preflight.md)):
-  `gh` is recorded, not pinned.** A missing `gh` is fatal, but a version difference warns
-  and runs. MCP connectors likewise accept inventory changes and report their current tool
-  count.
-- **The repository in play is conversational, and correctable.** There is no durable per-Thread repository binding. The installation is the ceiling; within it the coworker works out which repository a request means, and a human who sees it pick wrong redirects it with a mention. Per [build/06](../../.scratch/slack-coworker/build/06-queue-at-turn-boundary.md) that correction **queues at the Turn boundary rather than interrupting**, so "wrong repo, use the other one" lands after the current Turn — the accepted cost that ticket already documents, now on a path where it is more likely to be exercised.
-- **Setup burden rises materially.** Registering an App, holding a private key, and installing it against selected repositories is a longer path than pasting a PAT. [build/13](../../.scratch/slack-coworker/build/13-setup-story.md) carries it, and the App manifest joins the Slack manifest as something the project ships.
-- **The org-approval trap is retired, and replaced.** An unapproved *PAT* authenticated and then silently read only public data. An App installation fails visibly instead — but organisation owners must approve the installation, which is a different conversation with the same outcome if skipped.
-- **Withheld PAT scopes become declared App permissions.** `delete_repo`, `admin:org`, and `workflow` were withheld by not granting them; the App equivalent is simply not declaring `administration`, `members`, or `workflows` in the manifest. Same intent, and now visible in a file under review rather than in a checkbox someone ticked once.
-- **Unverified and load-bearing: merge is probably not separable from pull-request write.** GitHub's endpoint documentation does not surface the permission block for `PUT /pulls/{n}/merge`, and opening a pull request certainly requires `pull_requests: write`. If merge sits under the same permission — the likely case — then the App cannot deny merge while permitting the coworker's actual job, and layer 3 stays the only thing preventing it. Measure this before [build/09](../../.scratch/slack-coworker/build/09-github-connector.md) closes; if merge turns out to sit under `contents: write` alone, a genuinely merge-incapable installation becomes possible and this ADR gets an amendment restoring the boundary to the credential.
-
-Decided in conversation, superseding the GitHub half of [ticket 07](../../.scratch/slack-coworker/issues/07-connector-interface.md) and the token-type half of [ticket 12](../../.scratch/slack-coworker/issues/12-blast-radius.md). Installation-token facts verified against GitHub's documentation; the permission and `gh`-compatibility questions are recorded as verify-first work on build/09.
+The durable lesson is retained: repository scope belongs in the credential, and branch
+protection is the server-side merge boundary. The implementation now obtains repository
+scope from a fine-grained token and uses GitHub's official MCP server.

@@ -40,19 +40,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 export const RECORDED_CODEX_VERSION = "0.145.0";
 
 /**
- * And the `gh` version, on the same terms.
- *
- * [ADR-0006](../docs/adr/0006-github-is-a-skill-over-gh.md) moved GitHub out of the MCP
- * tool path and into a Skill over the `gh` CLI, which turned GitHub capability into a
- * **CLI dependency** — a program somebody else upgrades, on somebody else's schedule,
- * that this project's Skills issue commands to. That drifts the way Codex does, so it is
- * reported the way Codex is: warn on difference, run anyway. What it is not is a floor;
- * `gh` is stable in a way Codex is not, and refusing to start over a minor version would
- * be a lock-out with nothing behind it.
- */
-export const RECORDED_GH_VERSION = "2.96.0";
-
-/**
  * Codex's `project_doc_max_bytes` default. Past this it stops adding instruction
  * files — silently. The wrapper warns rather than truncating, because a silently
  * shortened operating manual is a coworker that quietly stops following half of it.
@@ -114,40 +101,6 @@ const boundsSchema = z.object({
 
 export type Bounds = z.infer<typeof boundsSchema>;
 
-/**
- * The GitHub App, as the instance resolves it.
- *
- * Absent means GitHub is simply not configured: the coworker has no `gh` credential and
- * the Skill that drives it will not work, which is a legitimate way to run this — a
- * Slack-and-Vault coworker with no repository at all.
- */
-export interface GitHubAppConfig {
-  appId: string;
-  /** The PEM itself, read at startup from the file the environment names. Never logged. */
-  privateKeyPem: string;
-  /** Where it was read from, so a startup failure can name the file rather than the key. */
-  privateKeyPath: string;
-  /**
-   * Which account's installation to use, when the App is installed on more than one.
-   *
-   * Optional because the common case is one installation, and asking a self-hoster to
-   * name it would be asking them to repeat what GitHub already knows.
-   */
-  owner?: string | undefined;
-  /**
-   * Repositories this instance expects to work in, as `owner/name`.
-   *
-   * **Not an allow-list** — it cannot be one, because nothing of ours is in the path
-   * between the coworker and `gh` (ADR-0006). It is a *statement of intent*, and preflight
-   * compares it against what the installation actually grants: a repository named here and
-   * missing there is the likeliest setup mistake on this path, and one that would otherwise
-   * surface as a Job failing to find a repository a human is certain it has.
-   *
-   * Empty means "whatever the installation grants", reported at startup either way.
-   */
-  repositories: readonly string[];
-}
-
 export interface Config {
   /** Where this configuration came from, in words, for the startup line. */
   source: string;
@@ -197,8 +150,6 @@ export interface Config {
   };
   /** Optional per-Job limits plus shared-service operational bounds. */
   bounds: Bounds;
-  /** The GitHub App, or nothing. See {@link GitHubAppConfig}. */
-  github?: GitHubAppConfig | undefined;
   /** Connectors, as MCP server configuration (ADR-0005). */
   mcpServers: readonly McpServerConfig[];
   /** The one registry those connectors came from. */
@@ -248,15 +199,6 @@ const configFileSchema = z
       // each field's own default, so "no `engine` section" and "an empty one" agree.
       .prefault({}),
     bounds: boundsSchema.partial().strict().prefault({}),
-    github: z
-      .object({
-        appIdEnvVar: z.string().min(1).default("GITHUB_APP_ID"),
-        privateKeyPathEnvVar: z.string().min(1).default("GITHUB_APP_PRIVATE_KEY_PATH"),
-        owner: z.string().min(1).optional(),
-        repositories: z.array(z.string().min(1)).default([]),
-      })
-      .strict()
-      .optional(),
     /** The single registry for every MCP server. Defaults to `mcp.json` beside this file. */
     mcpConfig: z.string().min(1).optional(),
   })
@@ -339,10 +281,6 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       maxConcurrentJobs: file.bounds.maxConcurrentJobs ?? BOUND_DEFAULTS.maxConcurrentJobs,
       librarianTimeoutMs: file.bounds.librarianTimeoutMs ?? BOUND_DEFAULTS.librarianTimeoutMs,
     },
-    github:
-      file.github === undefined
-        ? undefined
-        : await gitHubAppFrom(file.github, env, found.source, from),
     mcpServers: mcp.servers,
     mcpConfigSource: mcp.source,
   };
@@ -415,50 +353,6 @@ function credential(
     );
   }
   return value;
-}
-
-/** The App's id and private key, resolved the same way and reported the same way. */
-async function gitHubAppFrom(
-  file: {
-    appIdEnvVar: string;
-    privateKeyPathEnvVar: string;
-    owner?: string | undefined;
-    repositories: string[];
-  },
-  env: NodeJS.ProcessEnv,
-  source: string,
-  from: (given: string) => string,
-): Promise<GitHubAppConfig> {
-  const appId = credential(env, file.appIdEnvVar, source, "GitHub App id");
-  // A path in the environment rather than the key itself, because what GitHub hands you is
-  // a `.pem` file download: asking for a multi-line PEM inside a `.env` is asking for a
-  // credential to be mangled by quoting, and every mangling looks like a signing bug.
-  const privateKeyPath = from(
-    credential(env, file.privateKeyPathEnvVar, source, "GitHub App private key path"),
-  );
-  let privateKeyPem: string;
-  try {
-    privateKeyPem = await readFile(privateKeyPath, "utf8");
-  } catch (error) {
-    throw new Error(
-      `The GitHub App private key cannot be read from ${privateKeyPath} (named by ` +
-        `${file.privateKeyPathEnvVar}): ${reasonFor(error)}`,
-    );
-  }
-  if (!privateKeyPem.includes("PRIVATE KEY")) {
-    throw new Error(
-      `${privateKeyPath} does not look like a private key — GitHub's download is a PEM file ` +
-        'beginning "-----BEGIN RSA PRIVATE KEY-----". Nothing of its contents is logged, so ' +
-        "check the file itself.",
-    );
-  }
-  return {
-    appId,
-    privateKeyPem,
-    privateKeyPath,
-    owner: file.owner,
-    repositories: file.repositories,
-  };
 }
 
 function problemsIn(error: z.ZodError): string {

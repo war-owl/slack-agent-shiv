@@ -4,7 +4,10 @@ status: accepted
 
 # Connectors are MCP servers in configuration — there is no plugin interface
 
-**Amended by [ADR-0006](0006-github-is-a-skill-over-gh.md): GitHub is a carve-out.** GitHub is no longer an MCP connector — it is a Skill over the `gh` CLI, authenticated by a GitHub App, because repository selection had nowhere to live in this ADR's shape (outside the tool path, nothing of ours can narrow what Codex calls). This ADR continues to govern Linear and every third-party service. The project now has **two** extension routes rather than one: point it at an MCP server, or write a Skill. Read the consequences below with GitHub excepted throughout — in particular, the MCP deny-list does not cover it, and the git/MCP seam described at the end is withdrawn.
+**Amended by [ADR-0007](0007-github-is-an-official-mcp-server.md): the GitHub carve-out is removed.**
+GitHub's official MCP server now uses this same interface. The superseded Skill-over-`gh`
+design in ADR-0006 never reached a working Job path and duplicated configuration,
+authentication, audit, and preflight machinery.
 
 **Amended 2026-07-29: all MCP servers now live in one project-owned `mcp.json`.** MCP and
 its TypeScript SDK do not define a portable host configuration format, so the file is not
@@ -30,7 +33,9 @@ are intentionally not pinned: additions and removals do not prevent startup. Res
 - **Argument-level constraints are structurally unavailable.** Nothing can inspect the arguments to Linear's `save_issue` to distinguish creating from overwriting. Already accepted in ADR-0002; now a property of the architecture rather than a choice.
 - **Connector inventories are live and may evolve.** Preflight reports the current count
   for visibility but does not require an operator to approve changes.
-- ~~**Git stays outside MCP**: a checkout costs no new credentials and the API can neither grep nor run tests, so the seam is git for the filesystem, MCP for the pull request.~~ **Withdrawn by [ADR-0006](0006-github-is-a-skill-over-gh.md).** The first half holds — a checkout still costs no new credentials and the API still cannot grep or run tests — but there is no longer an MCP half to seam against. Both the branch push and the pull request are now shell, under one installation token.
+- **Git stays outside MCP:** a checkout costs no new connector and the API can neither grep
+  nor run tests, so the seam is git for the filesystem and MCP for GitHub metadata,
+  issues, reviews, and pull requests.
 - Posting to the Thread is the wrapper's job via the event stream, and the Vault is the filesystem — neither needs a tool.
 
 Decided in [ticket 07](../../.scratch/slack-coworker/issues/07-connector-interface.md); inventories measured in [ticket 05](../../.scratch/slack-coworker/issues/05-provision-accounts-and-tokens.md).

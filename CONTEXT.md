@@ -69,11 +69,10 @@ Two things separate a Skill from a Note. A Note is *belief*; a Skill is *instruc
 A Skill names an environment variable where a credential is needed; it never contains one.
 
 **A Skill is one of the two ways the coworker reaches an outside system**, the other being
-an MCP server named in the instance's `mcp.json`. GitHub is a Skill
-([ADR-0006](docs/adr/0006-github-is-a-skill-over-gh.md)); Linear is an MCP server. The
-choice turns on where the boundary has to live: a Skill puts it entirely in the credential,
-because nothing mediates the shell, while an MCP server allows a deny-list over its tool
-surface.
+an MCP server named in the instance's `mcp.json`. GitHub and Linear are MCP servers. Skills
+cover procedures for systems without a suitable server, such as a read-only reporting
+database. A Skill puts its action boundary entirely in the credential because nothing
+mediates the shell; an MCP server also permits exact tools to be disabled.
 
 ## Progress
 

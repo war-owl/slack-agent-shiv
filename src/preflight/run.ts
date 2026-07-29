@@ -1,37 +1,30 @@
 import { RECORDED_CODEX_VERSION, type Config } from "../config.ts";
 import { reasonFor } from "../failure.ts";
 import type { Engine } from "../ports/engine.ts";
-import type { GitHubAppProbe, GitHubCli } from "../ports/github.ts";
 import type { Logger } from "../ports/log.ts";
 import type { McpInventoryProber } from "../ports/mcp.ts";
 import type { SlackClient } from "../ports/slack.ts";
 import { readRootNote, rootNoteConcerns, ROOT_NOTE_FILENAME } from "../vault/root.ts";
 import { checkConnectors } from "./connectors.ts";
-import { checkGitHub } from "./github.ts";
 import { checkSkills } from "./skills.ts";
 
 /**
  * What the instance checks before it accepts its first mention.
  *
  * The brief is one sentence: **a self-hoster starts the instance and either it runs or it
- * tells them exactly what is wrong.** A missing token, a Codex or `gh` version that drifted
- * from the recorded one, an MCP server that quietly grew a tool since it was last reviewed,
- * or a GitHub App that is not installed where they think it is — each is found here, with
- * somebody watching, rather than in a Thread three hours later.
+ * tells them exactly what is wrong.** Missing credentials, engine drift, and unreachable
+ * MCP servers are found here with somebody watching rather than inside an unattended Job.
  *
  * Two severities, and the line between them is load-bearing:
  *
  * - **A report** describes an instance that will work. Version drift, the repository list,
  *   the bounds, the sandbox posture, a Root note full of prose. Some of these are warnings,
  *   which means "this will behave in a way you may not have intended".
- * - **A refusal** describes an instance whose boundaries are not the ones the documentation
- *   claims: a connector whose tool surface nobody has reviewed, a Skills directory the agent
- *   could rewrite, a GitHub App carrying `administration`. None of those is survivable,
- *   because in each case the instance would run *perfectly* while being a different instance
- *   from the one that was described.
+ * - **A refusal** describes an instance that cannot deliver its configured capability or
+ *   structural guarantees, such as an unreachable connector or writable Skills directory.
  *
  * Order matters only in one respect: the cheap local checks come before the network ones, so
- * a self-hoster with three things wrong does not have to wait on a GitHub round-trip to
+ * a self-hoster with three things wrong does not have to wait on a connector round-trip to
  * learn about the first of them.
  */
 export async function runPreflight(deps: {
@@ -39,8 +32,6 @@ export async function runPreflight(deps: {
   engine: Engine;
   slack: SlackClient;
   inventoryProber: McpInventoryProber;
-  github: GitHubAppProbe;
-  gh: GitHubCli;
   log: Logger;
   /**
    * The credential store. Named credentials are resolved out of it, never guessed.
@@ -60,7 +51,6 @@ export async function runPreflight(deps: {
   await checkSkills(deps);
   await checkSlack(deps);
   await checkConnectors(deps);
-  await checkGitHub(deps);
 }
 
 /**
@@ -86,7 +76,7 @@ async function checkEngine(deps: { engine: Engine; log: Logger }): Promise<void>
 
   // Read off the adapter that configures it rather than restated here, so this line cannot
   // drift from the sandbox a Job actually gets. It is layer 2 for everything the coworker
-  // does by shell, which since ADR-0006 includes all of GitHub.
+  // does by shell. MCP connector writes are recorded separately from this audit.
   const sandbox = deps.engine.sandbox;
   deps.log.info(
     `Sandbox: ${sandbox.mode}, network ${sandbox.networkEnabled ? "enabled" : "disabled"}, ` +

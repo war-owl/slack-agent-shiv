@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { onTestFinished } from "vitest";
-import { BOUND_DEFAULTS, type Config, type GitHubAppConfig } from "../../src/config.ts";
+import { BOUND_DEFAULTS, type Config } from "../../src/config.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
@@ -15,8 +15,6 @@ import {
 import {
   FakeClock,
   FakeEngine,
-  FakeGitHubApp,
-  FakeGitHubCli,
   FakeInventoryProber,
   FakeSlack,
 } from "./fakes.ts";
@@ -33,11 +31,6 @@ export interface HarnessOptions {
   mcpServers?: readonly PartialConnector[];
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
   bounds?: Partial<Config["bounds"]>;
-  /**
-   * The GitHub App, as configuration names it. Absent means GitHub is not configured at
-   * all, which is the default and a legitimate way to run this.
-   */
-  github?: Partial<GitHubAppConfig>;
   /** The credential store preflight resolves named credentials out of. */
   env?: NodeJS.ProcessEnv;
   /**
@@ -81,8 +74,6 @@ export interface CoworkerHarness {
   engine: FakeEngine;
   sessions: SessionStore;
   inventoryProber: FakeInventoryProber;
-  github: FakeGitHubApp;
-  gh: FakeGitHubCli;
   /** What a self-hoster would see in the instance's output. */
   logs: string[];
   warnings: string[];
@@ -149,16 +140,6 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     // its own numbers would pass while the numbers a self-hoster actually runs with
     // went untested.
     bounds: { ...BOUND_DEFAULTS, ...options.bounds },
-    github:
-      options.github === undefined
-        ? undefined
-        : {
-            appId: "1234567",
-            privateKeyPem: "-----BEGIN RSA PRIVATE KEY-----\nnot-a-real-key\n-----END…",
-            privateKeyPath: path.join(root, "app.pem"),
-            repositories: [],
-            ...options.github,
-          },
     mcpServers: (options.mcpServers ?? []).map((server) => ({
       transport: "http" as const,
       enabled: true,
@@ -179,8 +160,6 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
   const slack = new FakeSlack(clock);
   const engine = new FakeEngine();
   const inventoryProber = new FakeInventoryProber();
-  const github = new FakeGitHubApp();
-  const gh = new FakeGitHubCli();
   /** What a self-hoster would see at startup and in the instance's output. */
   const logs: string[] = [];
   const warnings: string[] = [];
@@ -192,8 +171,6 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     clock,
     sessions,
     inventoryProber,
-    github,
-    gh,
     // Not the real environment: a startup check on a named credential must not pass or fail
     // because of what happens to be in the shell that ran the tests.
     env: options.env ?? {},
@@ -262,8 +239,6 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     engine,
     sessions,
     inventoryProber,
-    github,
-    gh,
     logs,
     warnings,
     coworker,

@@ -208,23 +208,26 @@ Cross-Thread context goes **through the Vault and only the Vault**. Sessions nev
 
 ### The action boundary
 
-Three layers ([ADR-0002](../../docs/adr/0002-unattended-action-boundary.md)) — **but only two of them cover GitHub**, see the note below:
+Three layers ([ADR-0002](../../docs/adr/0002-unattended-action-boundary.md)):
 
 1. **Policy** — the coworker may do anything a human can undo, but not merging, `merge_diff`, `submit_diff_review`, deleting files, or Linear's `delete_*` family.
 2. **Exact-name deny-list** — enforced as Codex's per-server disabled tools. A fixed
    hand-curated floor covers known irreversible tools and configuration may add
    connector-specific `disabledTools`; the rest of the live inventory is allowed to evolve.
-   MCP annotations are not a portable safety primitive. A repo-managed **`pre-push` hook**
-   sits inside this layer as defence-in-depth (below). **MCP only** — see the note.
+   MCP annotations are not a portable safety primitive. GitHub's known merge and delete
+   tools are disabled here. A repo-managed **`pre-push` hook** sits inside this layer as
+   defence-in-depth.
 3. **Branch protection on the default branch** — because the agent has shell access and the token doubles as the git password, the irreversible actions are blocked *server-side* rather than at the credential: require a pull request before merging, require an approving review, and disallow bypassing including for administrators. **Where it can be enabled, this works** — verified, not assumed.
 
-> **Layer 2 does not cover GitHub** ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)). GitHub is reached by Skill over the `gh` CLI, not by MCP, so there is no tool surface to disable. GitHub runs on layers 1 and 3, and since layer 3 is plan-gated and warn-only, **a free-plan self-hoster in private repositories has no structural boundary on GitHub at all.** The substitutes are a "do not merge" instruction in the Skill and a `gh` shim that records invocations — both weaker than a tool that does not exist. This is the most-weakened point in the design and is called out as such in [build/09](build/09-github-connector.md) and [build/10](build/10-branch-protection-verification.md).
+**GitHub is the official MCP server** ([ADR-0007](../../docs/adr/0007-github-is-an-official-mcp-server.md)).
+It authenticates with a fine-grained PAT restricted to selected repositories and the
+permissions needed for contents, issues, and pull requests. The credential is the
+repository ceiling; `disabledTools` removes `merge_pull_request` and `delete_file` from the
+model's tool surface. GitHub server headers repeat those exclusions as defense-in-depth.
 
-**GitHub authenticates as a GitHub App installation**, scoped to repositories the self-hoster selects in GitHub's own UI ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)). Installation tokens cannot be widened beyond the installation, so **repository selection is enforced at the credential** — the thing neither PAT type could express.
-
-**GitHub is connect and forget.** The App is installed once and GitHub authentication is never revisited: the private key has no expiry, and the one-hour installation tokens are minted on demand by a credential helper that lives outside the sandbox's writable root, so a Job never holds a token and there is no expiry to straddle. This is a requirement, and it is *stronger* than the PAT it replaces — GitHub pushes PATs toward a 30/60/90-day expiry and a lapsed one stops the coworker until a human intervenes. Accepted in exchange: a single never-expiring string and per-repository scoping are mutually exclusive, since only installations can scope and only installations issue short tokens. `/search/issues` accepts installation tokens, so issue search survives without paying blanket scope for it. The permissions withheld are `administration`, `members`, and `workflows` — the App-manifest equivalents of the old withheld PAT scopes, and a writable CI definition is still an execution path around every other control.
-
-*Historical: the GitHub token was a classic PAT with `repo` scope, chosen because fine-grained PATs cannot search. That trade no longer exists.*
+The token may expire or require rotation. V1 accepts that ordinary operational cost rather
+than owning GitHub App JWT signing, installation discovery, token refresh, a `gh` Skill, and
+a second audit path.
 
 Sandbox is `workspace-write` with network enabled; `execpolicy` is unrestricted in v1.
 
@@ -236,7 +239,10 @@ Both open questions were tested against a live classic PAT. **They did not come 
 
 **It is unavailable on free-plan private repositories — both mechanisms.** Classic branch protection and rulesets both return `403 Upgrade to GitHub Pro or make this repository public`. Rulesets were the hypothesised escape hatch; they are gated identically. So **layer 3 does not exist for a self-hoster on a free plan working in private repositories**, which is plausibly the modal user, and for them the boundary is layers 1 and 2 alone.
 
-**Preflight therefore warns and continues rather than refusing.** Refusing was the original design and was given up deliberately: a self-hoster should not be locked out of their own tool by a paywall they cannot clear. The trade is explicit — **the instance will knowingly run without layer 3**, which promotes the guardrails from supplement to sole mitigation. Do not implement the warning without also implementing ~~the deny-list,~~ the `pre-push` hook, the `AGENTS.md` git policy, and — since [ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md) removed the deny-list from GitHub — the Skill's "do not merge" instruction and the `gh` audit shim; that combination is strictly worse than the refusal it replaces.
+**Preflight therefore warns and continues rather than refusing.** Refusing was the original
+design and was given up deliberately: a self-hoster should not be locked out of their own
+tool by a paywall they cannot clear. Without layer 3, policy, the MCP deny-list, the local
+hook, and the restricted token are the remaining mitigations.
 
 Preflight resolves protection with two calls: `GET /repos/{o}/{r}/rules/branches/{default_branch}` for effective rules — mechanism-agnostic, so classic protection and rulesets arrive in one shape — then `GET /repos/{o}/{r}/rulesets/{id}` for **`current_user_can_bypass`**, which must read `"never"`. Bypass state is *not* present on the `/rules` response.
 
@@ -252,23 +258,26 @@ Installed by the wrapper on every checkout it creates, via `core.hooksPath`. It 
 
 ### Connectors
 
-There are **two routes to an outside system, and no plugin interface** for either.
+There are **two routes to outside capability and no plugin interface**.
 
 **MCP servers named in `mcp.json`**
-([ADR-0005](../../docs/adr/0005-connectors-are-mcp-config.md)) — the route for Linear and
-for anything a self-hoster adds. The project-owned file supports Streamable HTTP and stdio;
+([ADR-0005](../../docs/adr/0005-connectors-are-mcp-config.md)) — the connector route for
+GitHub, Linear, and anything a self-hoster adds. The project-owned file supports Streamable HTTP and stdio;
 preflight consumes it through the official TypeScript client and translates the same
 validated entries into Codex configuration. Under `exec` the wrapper is not in the tool
 path; Codex calls the servers directly, so any normalising abstraction would still mean
 shipping a proxy MCP server.
 
-**Skills — a human-authored procedure plus the shell** ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)) — the route for GitHub, and for anything where standing up an MCP server is not worth it. A Skill lives outside the sandbox's writable root, so the coworker follows it and cannot edit it.
+**Skills — a human-authored procedure plus the shell** — the route for systems without a
+suitable MCP server, such as a read-only reporting database. A Skill lives outside the
+sandbox's writable root, so the coworker follows it and cannot edit it.
 
-**Choosing between them turns on where the boundary must live.** An MCP server permits a deny-list over its tool surface; a Skill puts the entire boundary in the credential, because nothing mediates the shell. GitHub went the Skill route *because* its boundary needed to be repository selection, which only a credential can express — and it accepted losing the deny-list to get it.
+Third-party connector extension is "add an MCP server"; a Skill documents non-connector
+shell procedures.
 
-Third-party extension is "point it at an MCP server, or write a Skill."
-
-**Git and the pull request are now one path.** A local checkout costs no new credentials and no API can grep a codebase or run its tests, so the checkout stays — but ~~the seam is git for the filesystem, MCP for the pull request~~ **that seam is withdrawn**: the branch is pushed with git and the pull request opened with `gh`, both shell, both under the same installation token.
+**Git and GitHub MCP have separate jobs.** A local checkout is required to grep, edit, and
+run tests. Git pushes the branch; the official MCP server reads GitHub state and opens the
+pull request. Build/12 owns the git credential workflow.
 
 Argument-level constraints are structurally unavailable — nothing can inspect the arguments to Linear's `save_issue` to distinguish creating from overwriting. Accepted.
 
@@ -288,8 +297,7 @@ Two consequences the implementation must carry rather than quietly soften:
 - **A resource reached by Skill is outside layer 2.** The deny-list covers the MCP tool
   path; a Skill drives the shell. The credential is the *whole* boundary, so it must
   genuinely be scoped — a read-only database role, not a read-write one nobody intends to
-  write with. This is a stronger position than GitHub's, where `repo` scope could not be
-  narrowed at all.
+  write with.
 - **The coworker cannot improve its own Skills.** A Job that finds a procedure has drifted says so in the Thread and may write an ordinary Note about it; the fix is a human edit. `AGENTS.md` must tell it this, so the failure is a report rather than a silent no-op.
 
 ### File ingress
@@ -359,7 +367,9 @@ Behaviour to cover at this seam:
 - The Session mapping is reused on a second mention in the same Thread, and a resume after an interrupted Turn injects the verify-state warning.
 - Each bound — wall-clock, max Turns, token budget — stops the Job and posts a message distinguishing "stopped" from "finished".
 - A dying Job posts what completed, what did not, and that side effects may have partially landed.
-- Preflight fails loudly, naming the changed tools, when the prober returns an inventory that does not match the pin.
+- Preflight connects to every enabled MCP server and reports its current tool count; additions
+  and removals do not block startup. An explicitly disabled tool missing from the inventory
+  warns because it may indicate a typo or upstream rename.
 - Preflight **warns and still starts**, naming the repository and the missing setting, when a configured repository's default branch is unprotected — and distinguishes unprotected from unprotectable.
 - A Job whose transcript contains nothing durable writes **no Note at all**; a Job that learns something durable writes one. Both are asserted against a real Vault directory.
 - An attached file lands in the workspace and is named in the prompt the fake engine received.
@@ -401,13 +411,17 @@ Ruled out by decisions already made. Each returns only if its decision is reopen
 
 ## Further Notes
 
-**On provisioning — reopened by [ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md).** Most of ticket 05 stands: both branch-protection checks have run, the preflight endpoints are settled, and the Slack app exists with its tokens in place. **The GitHub half is superseded.** The classic PAT that was issued and scope-verified is not the credential any more — a **GitHub App must be registered and installed** against selected repositories, and that is new outstanding work. The `delete_repo` finding survives as a documented trap for anyone still using a PAT, since GitHub reports the missing scope as `"Must have admin rights to Repository"`, misattributing a missing *scope* to missing *permissions*.
+**On provisioning — simplified by
+[ADR-0007](../../docs/adr/0007-github-is-an-official-mcp-server.md).** GitHub requires a
+fine-grained PAT restricted to selected repositories and the permissions needed for the
+configured official MCP toolsets. The token is named by the GitHub entry in `mcp.json`;
+there is no App registration, private key, installation, `gh` dependency, or special
+preflight path.
 
-Items remaining, none blocking the first build slices: **registering and installing the GitHub App**, ~~the org-approval trap~~ **organisation approval of the installation** (needs an org repo; the failure is now visible rather than silent), ~~withheld-`workflow` behaviour~~ **the undeclared-`workflows`-permission equivalent** (needs a push touching a workflow file), and **whether subscription auth sustains an always-on bot** (see [Runtime configuration](#runtime-configuration) — the one that could bite in production).
-
-**Four GitHub assumptions are unmeasured and block [build/09](build/09-github-connector.md):** whether `gh` works at all with a userless installation token, whether `gh search` reaches the Search API on one, **whether merge sits under `pull_requests: write`** (if so the App cannot deny merge while permitting the coworker's job), and what the coworker sees when a token expires mid-Job. The first three are new because the credential changed; the fourth is new because installation tokens expire and PATs did not.
-
-**On the token type.** Fine-grained PATs are ruled out by project decision, which is what moved layer 3 from the credential to the repository. The coworker keeps the Search API, which a fine-grained PAT would have cost it. The price is that the safety guarantee became **per-repository, opt-in, and — as measured — plan-gated**, where it used to be a property of the token. That is a real regression in robustness, and it has now been compounded twice: once by making protection per-repository, and again by discovering it cannot be enabled at all on free private repos. The deny-list, the hook, and the honest startup warning are the whole mitigation. Do not let any of them be dropped as a convenience during implementation.
+The remaining GitHub verification for build/09 is a real official-MCP connection using the
+chosen token: search issues, read a pull request, create a reversible test comment, and
+confirm that `merge_pull_request` and `delete_file` are absent. Token expiry and rotation
+are operator-visible credential maintenance rather than hidden wrapper machinery.
 
 **On residual risk, stated plainly.** A poisoning attempt succeeds until a human reads the echoed diff. A poisoned Note is indistinguishable in kind from a real one, by design — there is no trust class in the model. The links-only Root prevents instruction injection into the prompt but not a link to a malicious Note. Anything within the token's power on an unprotected surface is reachable by prompt injection, and non-destructive but embarrassing actions are fully available with manual recovery.
 

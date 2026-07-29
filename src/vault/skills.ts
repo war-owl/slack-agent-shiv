@@ -377,7 +377,7 @@ export function credentialShapesIn(text: string): string[] {
 const CREDENTIAL_SHAPES: ReadonlyArray<readonly [string, RegExp]> = [
   ["a private key", /-----BEGIN[ A-Z]*PRIVATE KEY-----/],
   ["a GitHub token", /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b/],
-  ["a GitHub App token", /\bgithub_pat_[A-Za-z0-9_]{20,}\b/],
+  ["a GitHub personal access token", /\bgithub_pat_[A-Za-z0-9_]{20,}\b/],
   ["a Slack token", /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/],
   ["a Slack app token", /\bxapp-\d-[A-Za-z0-9-]{10,}\b/],
   ["an OpenAI key", /\bsk-[A-Za-z0-9_-]{20,}\b/],
