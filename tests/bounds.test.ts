@@ -244,16 +244,19 @@ describe("stopping a Job from the Thread", () => {
     const correction = await h.startMention({
       text: `<@${BOT_USER_ID}> stop, wrong repo — use the other one`,
     });
-    await h.engine.started(2);
 
     // Killing an hour of work over the first word of a sentence is the expensive
     // mistake. A correction is a correction; hard-stop is one word and nothing else.
     expect(h.engine.ranTurns[0]?.aborted).toBe(false);
+    // It queues instead, like any other mention arriving mid-Job. That is the accepted
+    // cost of never running two Jobs in one Session — and the receipt says as much.
+    expect(h.engine.ranTurns).toHaveLength(1);
 
     running.resolve();
     if (delivery.accepted) await delivery.completed;
     if (correction.accepted) await correction.completed;
     expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toContain("Finished after all.");
+    expect(h.engine.promptFor(1)).toContain("wrong repo");
   });
 
   it("says so when there is nothing to stop", async () => {

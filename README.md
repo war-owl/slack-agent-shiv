@@ -8,7 +8,8 @@ So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-w
 one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)),
 a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)),
 an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)),
-and bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)):
+bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)),
+and a queue ([build/06](.scratch/slack-coworker/build/06-queue-at-turn-boundary.md)):
 a mention goes in, one message keeps you posted on the plan and the step it is on, every
 action it takes out in the world is appended to the thread permanently, and an answer
 comes back into the same thread — where a follow-up days later resumes the same
@@ -57,7 +58,21 @@ message.** A mention that says anything more is a correction, not a kill switch.
 Stopping kills the engine, but a shell command it had already launched can outlive it
 — see [build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md#the-limit-on-what-stop-means).
 
-Nothing yet bounds how many jobs run at once; each job is bounded, the instance is not.
+Four jobs run at once across the whole instance (`MAX_CONCURRENT_JOBS`); the rest wait
+their turn and say so in their thread.
+
+## Mentioning it while it is already working
+
+**One thread runs one job at a time.** Mention it again while a job is running and the
+new message is acknowledged immediately and then picked up the moment the current job
+finishes — in the same conversation, in the order the messages arrived. Other threads
+are unaffected: they run their own jobs at the same time.
+
+The cost is that **a correction waits too.** "@coworker stop, wrong repo" is a message
+with words in it, so it queues rather than interrupting, and the coworker finishes the
+wrong work before reading it. If you want it to drop what it is doing, that is
+`@coworker stop` on its own — which also throws away anything queued behind the job,
+and says in the thread what it threw away.
 
 It runs against the `codex` on your `PATH` — the installation you log in with and
 upgrade — falling back to the copy in `node_modules` if there is none, and reporting

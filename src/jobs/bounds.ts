@@ -30,6 +30,12 @@ import type { EngineEvent } from "../ports/engine.ts";
  * All three land on the same primitive: abort the signal the engine's run was given,
  * which kills the subprocess. A Job that has been stopped and is still spending money
  * has not been stopped.
+ *
+ * The configured `bounds` carry a fourth number, `maxConcurrentJobs`, which nothing
+ * here reads. It bounds the *instance* rather than a Job — it decides whether a Job
+ * starts, where these three decide when a started one has gone on too long — so it is
+ * enforced by `./queue.ts`. It travels in the same config group because it is the same
+ * question for whoever writes the `.env`.
  */
 
 /** Why a Job stopped before it was finished. */

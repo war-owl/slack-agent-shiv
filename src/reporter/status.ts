@@ -33,12 +33,14 @@ import { code, mrkdwn, oneLine } from "./mrkdwn.ts";
  * before a plan change shows up.
  *
  * **The tier is per app per workspace, not per Job**, and Jobs in different Threads
- * run concurrently, so the instance-wide exposure is that cap times however many Jobs
- * are running — and nothing here bounds that number. In practice a Job's plan changes
- * every few tens of seconds rather than every five, so the steady state is closer to
- * the heartbeat alone; the pathological case is many Jobs all churning at once.
- * {@link STATUS_BACKOFF_MS} is what makes hitting the limit survivable rather than
- * prevented. How many Jobs may run at once is build/05's question, not this one's.
+ * run concurrently, so the instance-wide exposure is this cap times however many Jobs
+ * are running. That number is bounded — `maxConcurrentJobs` defaults to four for this
+ * reason, four times twelve being just inside Slack's fifty — but it is configurable,
+ * so the arithmetic stops holding for an instance that raises it. In practice a Job's
+ * plan changes every few tens of seconds rather than every five, so the steady state is
+ * closer to the heartbeat alone; the pathological case is many Jobs all churning at
+ * once, and {@link STATUS_BACKOFF_MS} is what makes that survivable rather than
+ * prevented.
  */
 export const STATUS_POLL_MS = 5_000;
 
@@ -90,6 +92,15 @@ export interface StatusDeps {
   clock: Clock;
   log: Logger;
   thread: Thread;
+  /**
+   * A message already in the Thread for this Job, to take over instead of posting.
+   *
+   * A Job that had to wait was acknowledged when its mention arrived — minutes or
+   * hours before it started — and that receipt is this Job's one message. Rewriting it
+   * is what Progress is: one thing per Job, revised. Posting a second message would
+   * leave the Thread with a stale "I'll get to this" sitting above a live status.
+   */
+  adopt?: string | undefined;
 }
 
 /**
@@ -189,13 +200,15 @@ export async function startJobStatus(deps: StatusDeps): Promise<JobStatus> {
     }
   };
 
-  const posted = await deps.slack.postMessage({
-    thread: deps.thread,
-    text: render(state("working")),
-  });
-  // Lit immediately rather than on the first poll: Slack's own guidance is to show
-  // something the moment the request lands, and that is what this message is for.
-  await indicate(state("working"));
+  /** The one message this Job owns: the receipt it was given, or a new one. */
+  const messageTs =
+    deps.adopt ??
+    (
+      await deps.slack.postMessage({
+        thread: deps.thread,
+        text: render(state("working")),
+      })
+    ).ts;
 
   /** Never rejects: the caller is either a detached timer tick or the Job's last act. */
   const write = async (stage: StatusState["stage"]): Promise<void> => {
@@ -207,7 +220,7 @@ export async function startJobStatus(deps: StatusDeps): Promise<JobStatus> {
       try {
         await deps.slack.updateMessage({
           thread: deps.thread,
-          ts: posted.ts,
+          ts: messageTs,
           text: render(current),
         });
       } catch (error) {
@@ -224,6 +237,17 @@ export async function startJobStatus(deps: StatusDeps): Promise<JobStatus> {
     pending = pending.then(() => write(stage));
     return pending;
   };
+
+  if (deps.adopt === undefined) {
+    // Lit immediately rather than on the first poll: Slack's own guidance is to show
+    // something the moment the request lands, and that is what this message is for.
+    await indicate(state("working"));
+  } else {
+    // An adopted receipt still says "I'll get to this" until it is rewritten, so the
+    // first write happens now rather than up to a poll later — and it goes through
+    // `write`, so a Slack refusal here is endured like any other.
+    await queue("working");
+  }
 
   const refresh = (): Promise<void> | void => {
     if (settled) return;

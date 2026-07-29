@@ -20,6 +20,15 @@ export interface PromptContext {
    * will cheerfully push a branch that already exists.
    */
   resumingAfterInterruption: boolean;
+  /**
+   * This mention arrived while the previous Job in the Thread was still running.
+   *
+   * Jobs in a Thread are strictly sequential, so it waited — which means the person
+   * wrote it without having seen the answer they are about to be shown above it. Left
+   * unsaid, the coworker reads a correction as a fresh request about work it considers
+   * finished, and answers a question nobody is still asking.
+   */
+  queuedDuringPreviousJob: boolean;
 }
 
 export function buildJobPrompt(mention: Mention, context: PromptContext): string {
@@ -31,6 +40,7 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     `Thread: ${mention.thread.ts}`,
     `From: <@${mention.userId}>`,
     "",
+    ...(context.queuedDuringPreviousJob ? [QUEUED_NOTE, ""] : []),
     "Their message:",
     "",
     taskIn(mention.text),
@@ -39,6 +49,17 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     "so write it for the people reading that Thread.",
   ].join("\n");
 }
+
+/**
+ * Said before the message rather than after it, because it changes what the message
+ * means: read cold, "actually, use the other repo" is a new instruction.
+ */
+const QUEUED_NOTE = [
+  "This arrived while you were still working on the previous request in this thread,",
+  "and waited until you had finished. They wrote it before they saw your answer, so it",
+  "may be a correction to what you were doing rather than a new request. What you",
+  "already did stands — check what actually happened before redoing or undoing any of it.",
+].join("\n");
 
 /**
  * Placed first, before the task, because it changes how the task should be

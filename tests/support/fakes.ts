@@ -62,9 +62,30 @@ export class FakeSlack implements SlackClient {
 
   private nextTs = 1;
   private readonly clock: Clock;
+  private readonly heldEdits = new Map<string, { open: Deferred<void>; attempted: Deferred<void> }>();
 
   constructor(clock: Clock) {
     this.clock = clock;
+  }
+
+  /**
+   * Make edits to one message hang until released.
+   *
+   * Slack round-trips take real time, and a few of this system's sharper edges live
+   * *inside* one — the moment a queued Job has been handed its Thread and is waiting
+   * for Slack to accept its first status write, having done nothing else yet. This is
+   * how a test stands in that moment deliberately rather than by racing for it.
+   */
+  holdEditsTo(ts: string): { attempted: Promise<void>; release: () => void } {
+    const held = { open: deferred(), attempted: deferred() };
+    this.heldEdits.set(ts, held);
+    return {
+      attempted: held.attempted.promise,
+      release: () => {
+        this.heldEdits.delete(ts);
+        held.open.resolve();
+      },
+    };
   }
 
   async postMessage(message: PostMessage): Promise<PostedMessage> {
@@ -80,6 +101,11 @@ export class FakeSlack implements SlackClient {
 
   async updateMessage(message: UpdateMessage): Promise<void> {
     this.editAttempts.push({ ...message, at: this.clock.now() });
+    const held = this.heldEdits.get(message.ts);
+    if (held) {
+      held.attempted.resolve();
+      await held.open.promise;
+    }
     if (this.failEdits) throw this.failEdits;
     if (!this.writes.some((write) => write.ts === message.ts)) {
       throw new Error(`Asked to edit ${message.ts}, which this Slack never posted`);

@@ -13,3 +13,14 @@ export interface Thread {
   /** Slack's `thread_ts`: the `ts` of the message that started the Thread. */
   ts: string;
 }
+
+/**
+ * One Thread, as a single value — for the in-memory indexes that need to look one up.
+ *
+ * Two of those exist and they must agree: the queue that keeps a Thread's Jobs in a
+ * line, and the index a hard-stop reaches the running Job through. A Thread that keyed
+ * differently in the two would be a Thread whose stop found nothing.
+ */
+export function threadKey(thread: Thread): string {
+  return `${thread.channel} ${thread.ts}`;
+}

@@ -3,6 +3,8 @@ import { reasonFor } from "./failure.ts";
 import { boundJob, type JobBounds } from "./jobs/bounds.ts";
 import { trackTurnDurability } from "./jobs/interruption.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
+import { createJobQueue, type JobQueue, type Place, type WaitReason } from "./jobs/queue.ts";
+import { droppedReceipt, queueReceipt, stopReply } from "./jobs/replies.ts";
 import { reportFor, stopSentence, type JobReport } from "./jobs/report.ts";
 import { isStopRequest } from "./jobs/request.ts";
 import type { Clock } from "./ports/clock.ts";
@@ -14,7 +16,7 @@ import type { SlackClient } from "./ports/slack.ts";
 import { runPreflight } from "./preflight.ts";
 import { startAuditTrail, type AuditTrail } from "./reporter/audit.ts";
 import { startJobStatus, type JobStatus } from "./reporter/status.ts";
-import type { Thread } from "./thread.ts";
+import { threadKey, type Thread } from "./thread.ts";
 import { prepareWorkspace } from "./workspace.ts";
 import { writeScope } from "./writes/classify.ts";
 
@@ -64,38 +66,125 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
    * name a Job that is already dead. The Session mapping is the only thing that
    * genuinely has to persist.
    *
-   * Build/06 replaces this with a per-Thread queue, which needs the same index.
+   * At most one per Thread, and the queue is what makes that true.
    */
   const running = new Map<string, JobBounds>();
+  const queue = createJobQueue({ maxConcurrentJobs: deps.config.bounds.maxConcurrentJobs });
 
   return {
     preflight: () => runPreflight(deps),
 
     async handleMention(mention: Mention): Promise<StartedJob> {
-      // Checked before anything else is posted: a stop is not a task, and giving it a
-      // status message would leave an "On it" hanging over a Thread where the answer
-      // is that something has ended.
+      // Checked before anything else is posted, and before any place in the queue is
+      // taken: a stop is not a task, it must not wait behind the Job it is meant to
+      // kill, and giving it a status message would leave an "On it" hanging over a
+      // Thread where the answer is that something has ended.
       if (isStopRequest(mention.text)) {
-        return { jobId: mention.eventId, completed: hardStop(deps, running, mention) };
+        return { jobId: mention.eventId, completed: hardStop(deps, running, queue, mention) };
       }
 
-      // Acknowledged before any work starts. Bolt has already ack'd the socket
-      // event, but the human needs to see their request land in the Thread — that
-      // is what makes closing the laptop reasonable.
-      //
-      // The acknowledgement *is* the status message. One message that starts as "on
-      // it" and is edited in place from then on is one fewer thing in the Thread than
-      // an acknowledgement followed by a separate progress message.
-      const status = await startJobStatus({
-        slack: deps.slack,
-        clock: deps.clock,
-        log: deps.log,
-        thread: mention.thread,
-      });
+      // Taken before the acknowledgement is posted, and synchronously: the promise is
+      // that queued mentions are answered in the order they arrived, and a place taken
+      // after an `await` would be a place in the order Slack's replies came back.
+      const place = queue.join(mention.thread);
 
-      return { jobId: mention.eventId, completed: runJob(deps, running, mention, status) };
+      // Acknowledged before any work starts. Bolt has already ack'd the socket event,
+      // but the human needs to see their request land in the Thread — that is what
+      // makes closing the laptop reasonable, and it is the whole difference between a
+      // queued message and a dropped one.
+      //
+      // Either way it is **one** message, which the Job then owns. A Job starting now
+      // gets its status message, which starts as "on it" and is edited in place from
+      // then on. A Job that has to wait gets a receipt saying so, which its status
+      // message takes over when it finally starts.
+      let acknowledgement: Acknowledgement;
+      try {
+        acknowledgement = place.waiting
+          ? { receipt: await postReceipt(deps, mention, place.waiting), waited: place.waiting }
+          : { started: await statusFor(deps, mention.thread) };
+      } catch (error) {
+        // Nothing was said in the Thread, so this Job is not happening — and its place
+        // has to go with it, or the Thread queues forever behind a Job that never runs.
+        place.abandon();
+        throw error;
+      }
+
+      return {
+        jobId: mention.eventId,
+        completed: runInTurn(deps, running, place, mention, acknowledgement),
+      };
     },
   };
+}
+
+/**
+ * How this Job's mention was acknowledged, and therefore what its status message does
+ * when the work starts: it is either already posted, or a receipt waiting to become one.
+ */
+type Acknowledgement =
+  | { started: JobStatus }
+  /** The receipt's `ts`, and what it was waiting for — which the Job's prompt needs. */
+  | { receipt: string; waited: WaitReason };
+
+/**
+ * Wait for this Job's place in its Thread, then run it — or clean up after it if the
+ * Thread was stopped first.
+ *
+ * A dropped Job leaves a receipt behind promising to pick the message up, which is now
+ * untrue. Correcting it matters more than it sounds: the stop reply says *how many* were
+ * dropped, and leaving the messages themselves untouched asks the reader to work out
+ * which ones from a count.
+ */
+async function runInTurn(
+  deps: CoworkerDeps,
+  running: Map<string, JobBounds>,
+  place: Place,
+  mention: Mention,
+  acknowledgement: Acknowledgement,
+): Promise<void> {
+  const outcome = await place.take(() => runJob(deps, running, mention, acknowledgement));
+  if (outcome === "ran" || !("receipt" in acknowledgement)) return;
+
+  deps.log.info(`Dropped queued ${mention.eventId} in thread ${mention.thread.ts}`);
+  try {
+    await deps.slack.updateMessage({
+      thread: mention.thread,
+      ts: acknowledgement.receipt,
+      text: droppedReceipt(),
+    });
+  } catch (error) {
+    // The Job is already not happening and the stop reply has already said so. Failing
+    // the delivery over a tidying edit would turn a cosmetic problem into a logged one.
+    deps.log.warn(
+      `Could not mark the queued message in thread ${mention.thread.ts} as dropped: ` +
+        `${reasonFor(error)}`,
+    );
+  }
+}
+
+/** Tell the Thread its mention landed and will have to wait. Returns the receipt's ts. */
+async function postReceipt(
+  deps: CoworkerDeps,
+  mention: Mention,
+  wait: WaitReason,
+): Promise<string> {
+  const posted = await deps.slack.postMessage({
+    thread: mention.thread,
+    text: queueReceipt(wait),
+  });
+  deps.log.info(`Queued ${mention.eventId} in thread ${mention.thread.ts} (${wait.kind})`);
+  return posted.ts;
+}
+
+/** The Job's one message, whether it is being posted now or taken over from a receipt. */
+function statusFor(deps: CoworkerDeps, thread: Thread, adopt?: string): Promise<JobStatus> {
+  return startJobStatus({
+    slack: deps.slack,
+    clock: deps.clock,
+    log: deps.log,
+    thread,
+    adopt,
+  });
 }
 
 /**
@@ -106,26 +195,33 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
  * rather than left implicit: a person who typed "stop" and saw nothing would not know
  * whether it was heard, and if there was nothing running they should find that out
  * from the Thread rather than by waiting.
+ *
+ * **It empties the Thread's queue too.** Whatever is waiting was almost always written
+ * about the work being abandoned, and a person who says stop and then watches the next
+ * queued Job start immediately has every reason to conclude that stopping does not
+ * work. What was dropped is said out loud, because those are messages that are now not
+ * going to be answered.
  */
 async function hardStop(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
+  queue: JobQueue,
   mention: Mention,
 ): Promise<void> {
   const bounds = running.get(threadKey(mention.thread));
   const stopped = bounds?.stop({ kind: "asked-to-stop", byUserId: mention.userId }) ?? false;
+  const dropped = queue.dropWaiting(mention.thread);
 
   deps.log.info(
-    stopped
+    (stopped
       ? `Hard-stopping the Job in thread ${mention.thread.ts} at ${mention.userId}'s request`
-      : `Asked to stop thread ${mention.thread.ts}, where nothing is running`,
+      : `Asked to stop thread ${mention.thread.ts}, where nothing is running`) +
+      (dropped === 0 ? "" : `, dropping ${dropped} queued mention(s)`),
   );
 
   await deps.slack.postMessage({
     thread: mention.thread,
-    text: stopped
-      ? "Stopping now. I'll say where I had got to in a moment."
-      : "Nothing of mine is running in this thread, so there was nothing to stop.",
+    text: stopReply({ stopped, dropped }),
   });
 }
 
@@ -133,13 +229,25 @@ async function runJob(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
   mention: Mention,
-  status: JobStatus,
+  acknowledgement: Acknowledgement,
 ): Promise<void> {
-  const startedAt = deps.clock.now();
-  // Armed before the workspace exists, because the wall clock is there to catch a Job
-  // that is stuck and preparing a workspace is not exempt from being stuck.
+  // Armed and put in the index **before this function awaits anything**, and that is
+  // load-bearing. The queue stops treating this Job as interruptible the moment it
+  // hands it the Thread, so a stop arriving in the gap between there and here would
+  // find nothing in either place and be answered with "nothing was running" — while
+  // the Job it was aimed at carried on. The wall clock wants to start here too: a Job
+  // that wedges before its first action is still wedged.
   const bounds = boundJob({ bounds: deps.config.bounds, clock: deps.clock });
   running.set(threadKey(mention.thread), bounds);
+  const startedAt = deps.clock.now();
+
+  // A Job that waited takes over the receipt it was acknowledged with, so the Thread
+  // gets one message per Job either way. Its elapsed time starts here, at the work,
+  // rather than at the mention: how long it queued is not how long it took.
+  const status =
+    "started" in acknowledgement
+      ? acknowledgement.started
+      : await statusFor(deps, mention.thread, acknowledgement.receipt);
 
   let answer = "";
   let failure: string | undefined;
@@ -177,6 +285,11 @@ async function runJob(
     // approached: a Session whose last Turn was interrupted has to be *told* so.
     const prompt = buildJobPrompt(mention, {
       resumingAfterInterruption: recorded?.interrupted ?? false,
+      // Only when it waited behind a Job *in this Thread*. A Job held back by the
+      // instance ceiling waited too, but nothing was said in this Thread meanwhile, so
+      // telling it that it interrupted something would be telling it a false thing.
+      queuedDuringPreviousJob:
+        "waited" in acknowledgement && acknowledgement.waited.kind === "job-ahead",
     });
 
     try {
@@ -228,12 +341,9 @@ async function runJob(
     failure = reasonFor(error);
   } finally {
     bounds.release();
-    // Only if it is still this Job's. Nothing yet stops two Jobs overlapping in one
-    // Thread — build/06's queue is what does — and until then the finishing one must
-    // not take a running one's place in the index out with it.
-    if (running.get(threadKey(mention.thread)) === bounds) {
-      running.delete(threadKey(mention.thread));
-    }
+    // Unconditionally: the queue holds this Thread's next Job until this function's
+    // promise settles, so nothing else can have taken this entry in the meantime.
+    running.delete(threadKey(mention.thread));
   }
 
   if (bounds.stoppedBy !== undefined) {
@@ -263,11 +373,6 @@ async function runJob(
   // and the status has stopped moving by the time anyone reads the result.
   await status.settle(report.outcome);
   await deps.slack.postMessage({ thread: mention.thread, text: report.text });
-}
-
-/** One Thread, named the way this process indexes the Jobs running inside it. */
-function threadKey(thread: Thread): string {
-  return `${thread.channel} ${thread.ts}`;
 }
 
 /**

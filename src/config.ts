@@ -65,6 +65,26 @@ export const BOUND_DEFAULTS = {
    * does not know the price of the model it was pointed at.
    */
   tokenBudgetPerJob: 1_000_000,
+  /**
+   * Four Jobs at once, across the whole instance.
+   *
+   * The other three bounds are each a bound on *one* Job; this is the one that answers
+   * for the instance, because ten Threads mentioning the coworker at the same time is
+   * otherwise ten subprocesses and ten of every budget above.
+   *
+   * Four rather than a round ten because Slack sets the ceiling before the machine
+   * does. A Job's status message can be rewritten up to twelve times a minute
+   * (`STATUS_POLL_MS` in `reporter/status.ts`) and `chat.update` is Tier 3 — roughly 50
+   * a minute, **per app rather than per Job** — so four churning Jobs sit just inside
+   * the limit and five do not. It is also about as many Codex subprocesses as a
+   * self-hoster's laptop will run without noticing.
+   *
+   * Unlike the three above, no Job can see this one: it is enforced by the queue, which
+   * decides *whether* a Job runs, not by the bounds, which decide when one has run for
+   * too long. It sits in the same group because it is the same question for whoever is
+   * writing the `.env` — what will this instance let itself do.
+   */
+  maxConcurrentJobs: 4,
 } as const;
 
 const boundsSchema = z.object({
@@ -74,6 +94,8 @@ const boundsSchema = z.object({
   maxTurnsPerJob: z.number().int().positive(),
   /** Cumulative tokens across the Job, accumulated from turn-completion usage. */
   tokenBudgetPerJob: z.number().int().positive(),
+  /** How many Jobs may run at once across every Thread. The one instance-wide bound. */
+  maxConcurrentJobs: z.number().int().positive(),
 });
 
 export type Bounds = z.infer<typeof boundsSchema>;
@@ -102,7 +124,10 @@ export const configSchema = z.object({
     /** Left unset, the `codex` on `PATH` is used, falling back to the vendored one. */
     codexPath: z.string().min(1).optional(),
   }),
-  /** What stops a Job that does not stop by itself. See {@link BOUND_DEFAULTS}. */
+  /**
+   * What stops a Job that does not stop by itself, and how many may run at once. See
+   * {@link BOUND_DEFAULTS}.
+   */
   bounds: boundsSchema,
   /** Connectors, as MCP server configuration. Empty until the connector tickets. */
   mcpServers: z.array(
@@ -162,6 +187,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       turnTimeoutMs: numberFromEnv(env.TURN_TIMEOUT_MS, BOUND_DEFAULTS.turnTimeoutMs),
       maxTurnsPerJob: numberFromEnv(env.MAX_TURNS_PER_JOB, BOUND_DEFAULTS.maxTurnsPerJob),
       tokenBudgetPerJob: numberFromEnv(env.TOKEN_BUDGET_PER_JOB, BOUND_DEFAULTS.tokenBudgetPerJob),
+      maxConcurrentJobs: numberFromEnv(
+        env.MAX_CONCURRENT_JOBS,
+        BOUND_DEFAULTS.maxConcurrentJobs,
+      ),
     },
     mcpServers: [],
   });
