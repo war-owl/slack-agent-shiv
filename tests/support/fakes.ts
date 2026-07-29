@@ -10,6 +10,10 @@ import type {
 } from "../../src/ports/engine.ts";
 import type { McpInventory, McpInventoryProber, McpServerConfig } from "../../src/ports/mcp.ts";
 import type {
+  BranchProtection,
+  RepositoryProtectionProbe,
+} from "../../src/ports/repositories.ts";
+import type {
   PostMessage,
   PostedMessage,
   SetStatus,
@@ -494,5 +498,20 @@ export class FakeInventoryProber implements McpInventoryProber {
     this.probed.push(server.name);
     if (this.failure) throw this.failure;
     return this.inventories.get(server.name) ?? { tools: [] };
+  }
+}
+
+export class FakeRepositoryProtectionProbe implements RepositoryProtectionProbe {
+  protections = new Map<string, BranchProtection>();
+  readonly checked: string[] = [];
+
+  async check(repository: string): Promise<BranchProtection> {
+    this.checked.push(repository);
+    return (
+      this.protections.get(repository) ?? {
+        status: "protected",
+        defaultBranch: "main",
+      }
+    );
   }
 }

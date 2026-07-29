@@ -10,11 +10,23 @@ and every other connector. Authentication is a fine-grained personal access toke
 `bearerTokenEnvVar`, restricted in GitHub to the repositories and permissions the coworker
 needs.
 
+**Amended by build/10:** connector connectivity and Job tools still use only the official
+MCP server, but startup has one narrow direct GitHub REST path for the repository boundary.
+The official server does not expose effective branch rules or
+`current_user_can_bypass`, while ADR-0002 requires those exact checks. Preflight therefore
+uses the bearer variable named by the GitHub MCP entry to read repository metadata,
+effective rules, and contributing rulesets. This is a read-only safety verifier, not a
+second connector surface: Jobs cannot call it and GitHub work still goes through MCP.
+
 This restores the original deep module: callers learn one connector interface and the
 official server hides GitHub protocol behavior. Open-agent owns only generic MCP transport,
 tool-call auditing, exact disabled-tool policy, and startup connectivity. It does not own
 a GitHub API client, App JWT signing, installation discovery, token refresh, a `gh` adapter,
 or special GitHub preflight.
+
+The build/10 amendment narrows the “no GitHub API client or special preflight” statement:
+open-agent owns the three read-only branch-protection requests needed to verify the
+server-side boundary, and no general GitHub capability path.
 
 ## Why
 

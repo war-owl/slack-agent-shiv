@@ -11,6 +11,7 @@
   "stateDir": "./.state",
   "operatingManual": "./assets/operating-manual.md",
   "mcpConfig": "./mcp.json",
+  "repositories": [],
   "engine": {
     "model": "gpt-5.6-sol",
     "reasoningEffort": "low"

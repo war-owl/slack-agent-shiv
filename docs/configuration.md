@@ -3,7 +3,8 @@
 One instance file, one MCP registry, and secrets in the environment.
 
 `open-agent.config.json` describes the instance: where the Vault is, what stops a runaway
-Job, which model, and where its MCP registry lives. `mcp.json` is the
+Job, which model, which repositories need their server-side boundary checked, and where its
+MCP registry lives. `mcp.json` is the
 single extensible registry for every MCP server. Both files **name** credentials by
 environment variable and never contain their values, exactly as a
 [Skill](../CONTEXT.md#skill) does. `.env` is the keyring.
@@ -126,6 +127,11 @@ official [`@modelcontextprotocol/client`](https://github.com/modelcontextprotoco
 v2 SDK during preflight. Codex receives the same validated entries through its own MCP
 configuration, so there is no second server list to synchronize.
 
+Codex resolves connector credentials for MCP calls because the wrapper is not in that tool
+path. The one exception is the read-only GitHub repository-protection check: startup
+resolves the GitHub connector's bearer token to call the repository and rules endpoints
+described below.
+
 Every enabled entry may also carry open-agent's policy:
 
 - **`disabledTools`** — optional extra tools to disable. It defaults to `[]`. The known
@@ -168,6 +174,32 @@ new tool is dangerous from its name or MCP annotations. New capabilities are all
 default; operators can add tool names to `disabledTools` without maintaining a complete
 inventory.
 
+### `repositories`
+
+```json
+"repositories": ["your-org/your-repository"]
+```
+
+Every named GitHub repository is checked at startup. Preflight reads its default branch,
+then queries the effective rules for that branch and the contributing rulesets. The
+required boundary is:
+
+- changes must arrive through a pull request;
+- at least one approving review is required;
+- `current_user_can_bypass` is `never`, including for repository administrators.
+
+An ordinary missing rule is reported as **unprotected (fixable)** and names each setting
+to enable. GitHub's `403 Upgrade to GitHub Pro or make this repository public` is reported
+as **unprotectable on this plan**. Both are warnings: the instance continues because
+private-repository protection is unavailable on GitHub's free plan.
+
+Continuing is a real reduction in safety. The exact MCP deny-list and the local `pre-push`
+hook remain, but they are weaker than a server-side rule: `--no-verify`, a one-off
+`core.hooksPath`, editing the hook, or calling GitHub over HTTP bypasses the hook, while a
+new destructive MCP tool is available until somebody adds its exact name to the deny-list.
+Linear has no repository-shaped third layer at all and always runs on policy and the MCP
+deny-list alone.
+
 ### GitHub through `mcp.json`
 
 ```json
@@ -195,6 +227,13 @@ The server-side exclusion header avoids advertising merge and deletion tools. Th
 configuration. This duplication is intentional defence-in-depth, not a second connector
 implementation. Git checkout and push remain ordinary local `git`; GitHub metadata, issues,
 reviews, and pull-request creation use MCP.
+
+The included checkout-hook installer is stdin-driven. It judges the remote destination ref
+and actual commit ancestry, so `HEAD:main` and a forced `+refspec` cannot evade it. It blocks
+the default branch, non-fast-forwards, and remote deletions while allowing ordinary
+feature-branch pushes. Build/12 wires it into the checkout lifecycle; until then the wrapper
+does not create checkouts. This is accident protection, not the action boundary; branch
+protection is the boundary.
 
 ## Version reporting
 

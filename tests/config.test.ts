@@ -109,6 +109,26 @@ describe("the configuration file", () => {
     expect(config.bounds.tokenBudgetPerJob).toBeUndefined();
   });
 
+  it("loads the repositories whose default branches preflight must verify", async () => {
+    const { dir, filePath } = await configFile({
+      mcpConfig: "./mcp.json",
+      repositories: ["acme/payments", "acme/ledger"],
+    });
+    await writeMcp(dir, {
+      mcpServers: {
+        github: {
+          type: "streamable-http",
+          url: "https://api.githubcopilot.com/mcp/",
+          bearerTokenEnvVar: "GITHUB_TOKEN",
+        },
+      },
+    });
+
+    const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
+
+    expect(config.repositories).toEqual(["acme/payments", "acme/ledger"]);
+  });
+
   it("refuses a key it does not recognise, naming it", async () => {
     const { filePath } = await configFile({ bounds: { turnTimeutMs: 90_000 } } as ConfigFile);
 
@@ -119,6 +139,16 @@ describe("the configuration file", () => {
     );
 
     expect(String(failure)).toContain("turnTimeutMs");
+  });
+
+  it("refuses a repository name that could alter the GitHub request URL", async () => {
+    const { filePath } = await configFile({
+      repositories: ["acme/payments?visibility=public"],
+    });
+
+    await expect(loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath })).rejects.toThrow(
+      /owner\/repository/,
+    );
   });
 
   it("refuses a bound that is not a number", async () => {
@@ -204,6 +234,16 @@ describe("credentials, which the file names and never holds", () => {
 });
 
 describe("connectors, which the file is the only record of", () => {
+  it("refuses repositories it cannot verify without an enabled GitHub connector", async () => {
+    const { filePath } = await configFile({
+      repositories: ["acme/payments"],
+    });
+
+    await expect(loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath })).rejects.toThrow(
+      /enabled GitHub connector/,
+    );
+  });
+
   it("carries the token's variable name without requiring policy lists", async () => {
     const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
     await writeMcp(dir, {
@@ -224,8 +264,8 @@ describe("connectors, which the file is the only record of", () => {
       "LINEAR_API_KEY",
     );
     expect(linear?.disabledTools).toEqual([]);
-    // Nothing resolved the token here. The wrapper is not in the tool path (ADR-0005) —
-    // Codex reads the variable itself, so the credential never enters this process.
+    // Nothing resolved the token while loading configuration. Codex reads it for MCP calls;
+    // startup resolves it separately only when checking configured repository protection.
     expect(JSON.stringify(config)).not.toContain("lin_api");
   });
 

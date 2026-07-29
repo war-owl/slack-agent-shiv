@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { z } from "zod";
 import { DEFAULT_MCP_CONFIG_FILENAME, loadMcpConfig } from "./mcp/config.ts";
-import type { McpServerConfig } from "./ports/mcp.ts";
+import type { McpHttpServerConfig, McpServerConfig } from "./ports/mcp.ts";
+import { isRepositoryName } from "./repositories/name.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "./vault/skills.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -154,6 +155,10 @@ export interface Config {
   mcpServers: readonly McpServerConfig[];
   /** The one registry those connectors came from. */
   mcpConfigSource: string;
+  /** GitHub repositories whose default-branch boundary is verified at startup. */
+  repositories: readonly string[];
+  /** The connector-owned credential variable used only by the read-only safety probe. */
+  repositoryProtectionTokenEnvVar: string | undefined;
 }
 
 /**
@@ -199,6 +204,9 @@ const configFileSchema = z
       // each field's own default, so "no `engine` section" and "an empty one" agree.
       .prefault({}),
     bounds: boundsSchema.partial().strict().prefault({}),
+    repositories: z
+      .array(z.string().refine(isRepositoryName, "Expected owner/repository"))
+      .default([]),
     /** The single registry for every MCP server. Defaults to `mcp.json` beside this file. */
     mcpConfig: z.string().min(1).optional(),
   })
@@ -242,6 +250,20 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
         : from(file.mcpConfig),
     required: file.mcpConfig !== undefined,
   });
+  const github = mcp.servers.find(
+    (server): server is McpHttpServerConfig =>
+      server.name === "github" &&
+      server.enabled &&
+      server.transport === "http" &&
+      server.bearerTokenEnvVar !== undefined,
+  );
+  if (file.repositories.length > 0 && github === undefined) {
+    throw new Error(
+      `${found.source} configures repositories to verify, but ${mcp.source} has no enabled ` +
+        "GitHub connector with a bearerTokenEnvVar. Preflight cannot verify a repository " +
+        "boundary without the credential path it is checking.",
+    );
+  }
 
   return {
     source: found.source,
@@ -283,6 +305,8 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
     },
     mcpServers: mcp.servers,
     mcpConfigSource: mcp.source,
+    repositories: file.repositories,
+    repositoryProtectionTokenEnvVar: github?.bearerTokenEnvVar,
   };
 }
 

@@ -16,6 +16,7 @@ import {
   FakeClock,
   FakeEngine,
   FakeInventoryProber,
+  FakeRepositoryProtectionProbe,
   FakeSlack,
 } from "./fakes.ts";
 import { testTempDir } from "./test-root.ts";
@@ -29,6 +30,8 @@ export interface HarnessOptions {
    * Connectors, as configuration names them.
    */
   mcpServers?: readonly PartialConnector[];
+  /** GitHub repositories whose server-side boundary preflight verifies. */
+  repositories?: readonly string[];
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
   bounds?: Partial<Config["bounds"]>;
   /** The credential store preflight resolves named credentials out of. */
@@ -74,6 +77,7 @@ export interface CoworkerHarness {
   engine: FakeEngine;
   sessions: SessionStore;
   inventoryProber: FakeInventoryProber;
+  repositoryProtection: FakeRepositoryProtectionProbe;
   /** What a self-hoster would see in the instance's output. */
   logs: string[];
   warnings: string[];
@@ -148,6 +152,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
       disabledTools: [],
       ...server,
     })),
+    repositories: options.repositories ?? [],
+    repositoryProtectionTokenEnvVar: undefined,
   };
 
   // A real file, like the Vault: "the mapping survives a restart" is a claim about
@@ -160,6 +166,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
   const slack = new FakeSlack(clock);
   const engine = new FakeEngine();
   const inventoryProber = new FakeInventoryProber();
+  const repositoryProtection = new FakeRepositoryProtectionProbe();
   /** What a self-hoster would see at startup and in the instance's output. */
   const logs: string[] = [];
   const warnings: string[] = [];
@@ -171,6 +178,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     clock,
     sessions,
     inventoryProber,
+    repositoryProtection,
     // Not the real environment: a startup check on a named credential must not pass or fail
     // because of what happens to be in the shell that ran the tests.
     env: options.env ?? {},
@@ -239,6 +247,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     engine,
     sessions,
     inventoryProber,
+    repositoryProtection,
     logs,
     warnings,
     coworker,

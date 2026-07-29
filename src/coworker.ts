@@ -12,6 +12,7 @@ import type { Clock } from "./ports/clock.ts";
 import type { Engine, EngineSession, PlanStep, SessionOptions } from "./ports/engine.ts";
 import type { Logger } from "./ports/log.ts";
 import type { McpInventoryProber } from "./ports/mcp.ts";
+import type { RepositoryProtectionProbe } from "./ports/repositories.ts";
 import type { SessionStore } from "./ports/sessions.ts";
 import type { SlackClient } from "./ports/slack.ts";
 import { runPreflight } from "./preflight/run.ts";
@@ -54,6 +55,7 @@ export interface CoworkerDeps {
   /** The `thread_ts → session id` mapping. The wrapper's only durable state. */
   sessions: SessionStore;
   inventoryProber: McpInventoryProber;
+  repositoryProtection: RepositoryProtectionProbe;
   log: Logger;
   /**
    * Where named credentials are read from — the one store, shared with whatever was

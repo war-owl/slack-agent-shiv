@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.ts";
 import { createCoworker } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
+import { createGitHubRepositoryProtectionProbe } from "./github/protection.ts";
 import { createMcpInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
 import type { Logger } from "./ports/log.ts";
@@ -16,6 +17,9 @@ const log: Logger = {
 async function main(): Promise<void> {
   const config = await loadConfig();
   const app = createSlackApp(config);
+  const githubTokenVariable = config.repositoryProtectionTokenEnvVar;
+  const githubToken =
+    githubTokenVariable === undefined ? undefined : process.env[githubTokenVariable]?.trim();
 
   const coworker = createCoworker({
     config,
@@ -29,6 +33,18 @@ async function main(): Promise<void> {
     // One credential store, handed to everything that reads one — so the check and the thing
     // it checks cannot end up reading different environments.
     inventoryProber: createMcpInventoryProber(process.env),
+    repositoryProtection:
+      githubToken === undefined || githubToken === ""
+        ? {
+            check: async (repository) => {
+              throw new Error(
+                `Repository ${repository} is configured, but the enabled GitHub MCP ` +
+                  "connector does not name a usable bearer token. Branch protection cannot " +
+                  "be verified.",
+              );
+            },
+          }
+        : createGitHubRepositoryProtectionProbe({ token: githubToken }),
     env: process.env,
     log,
   });

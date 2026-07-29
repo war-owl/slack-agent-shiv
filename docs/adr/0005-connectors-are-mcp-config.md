@@ -37,6 +37,10 @@ not pinned: additions and removals do not prevent startup. Research:
 - **Git stays outside MCP:** a checkout costs no new connector and the API can neither grep
   nor run tests, so the seam is git for the filesystem and MCP for GitHub metadata,
   issues, reviews, and pull requests.
+- **Branch-protection verification is not a connector carve-out.** Build/10 makes three
+  read-only GitHub REST requests at startup because the effective-rules and bypass fields
+  ADR-0002 requires are not exposed by the MCP toolsets. Jobs receive no such client; their
+  GitHub work remains entirely MCP plus local git.
 - Posting to the Thread is the wrapper's job via the event stream, and the Vault is the filesystem — neither needs a tool.
 
 Decided in [ticket 07](../../.scratch/slack-coworker/issues/07-connector-interface.md); inventories measured in [ticket 05](../../.scratch/slack-coworker/issues/05-provision-accounts-and-tokens.md).

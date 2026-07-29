@@ -263,3 +263,53 @@ describe("the generated deny-list", () => {
     );
   });
 });
+
+describe("the repository boundary", () => {
+  it("warns and continues when a configured repository is missing protection", async () => {
+    const h = await coworkerHarness({ repositories: ["acme/payments"] });
+    h.repositoryProtection.protections.set("acme/payments", {
+      status: "unprotected",
+      defaultBranch: "main",
+      missing: ["an approving review", "administrator bypass disabled"],
+    });
+
+    await h.coworker.preflight();
+
+    expect(h.repositoryProtection.checked).toEqual(["acme/payments"]);
+    const warning = h.warnings.join("\n");
+    expect(warning).toContain("acme/payments");
+    expect(warning).toContain("fixable");
+    expect(warning).toContain("an approving review");
+    expect(warning).toContain("administrator bypass disabled");
+  });
+
+  it("distinguishes a plan-gated repository and still starts", async () => {
+    const h = await coworkerHarness({ repositories: ["acme/private-repo"] });
+    h.repositoryProtection.protections.set("acme/private-repo", {
+      status: "unprotectable",
+      defaultBranch: "main",
+      reason: "Upgrade to GitHub Pro or make this repository public",
+    });
+
+    await h.coworker.preflight();
+
+    const warning = h.warnings.join("\n");
+    expect(warning).toContain("acme/private-repo");
+    expect(warning).toContain("unprotectable");
+    expect(warning).toContain("Upgrade to GitHub Pro");
+    expect(warning).toContain("will run without layer 3");
+  });
+
+  it("reports protected repositories without warning", async () => {
+    const h = await coworkerHarness({
+      repositories: ["acme/payments", "acme/ledger"],
+    });
+
+    await h.coworker.preflight();
+
+    expect(h.repositoryProtection.checked).toEqual(["acme/payments", "acme/ledger"]);
+    expect(h.logs.join("\n")).toContain("acme/payments");
+    expect(h.logs.join("\n")).toContain("acme/ledger");
+    expect(h.warnings).toEqual([]);
+  });
+});

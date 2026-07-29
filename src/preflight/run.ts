@@ -3,6 +3,7 @@ import { reasonFor } from "../failure.ts";
 import type { Engine } from "../ports/engine.ts";
 import type { Logger } from "../ports/log.ts";
 import type { McpInventoryProber } from "../ports/mcp.ts";
+import type { RepositoryProtectionProbe } from "../ports/repositories.ts";
 import type { SlackClient } from "../ports/slack.ts";
 import { readRootNote, rootNoteConcerns, ROOT_NOTE_FILENAME } from "../vault/root.ts";
 import { checkConnectors } from "./connectors.ts";
@@ -32,6 +33,7 @@ export async function runPreflight(deps: {
   engine: Engine;
   slack: SlackClient;
   inventoryProber: McpInventoryProber;
+  repositoryProtection: RepositoryProtectionProbe;
   log: Logger;
   /**
    * The credential store. Named credentials are resolved out of it, never guessed.
@@ -51,6 +53,39 @@ export async function runPreflight(deps: {
   await checkSkills(deps);
   await checkSlack(deps);
   await checkConnectors(deps);
+  await checkRepositories(deps);
+}
+
+async function checkRepositories(deps: {
+  config: Config;
+  repositoryProtection: RepositoryProtectionProbe;
+  log: Logger;
+}): Promise<void> {
+  for (const repository of deps.config.repositories) {
+    const protection = await deps.repositoryProtection.check(repository);
+    if (protection.status === "protected") {
+      deps.log.info(
+        `Repository ${repository}: ${protection.defaultBranch} has the required server-side protection.`,
+      );
+      continue;
+    }
+
+    if (protection.status === "unprotectable") {
+      deps.log.warn(
+        `Repository ${repository}: default branch ${protection.defaultBranch} is unprotectable ` +
+          `on this plan (${protection.reason}). The instance will run without layer 3; the ` +
+          "MCP deny-list and local pre-push hook are weaker defence-in-depth.",
+      );
+      continue;
+    }
+
+    deps.log.warn(
+      `Repository ${repository}: default branch ${protection.defaultBranch} is unprotected ` +
+        `(fixable). Missing: ${protection.missing.join(", ")}. Enable the missing repository ` +
+        "rules. The instance will continue with only the weaker MCP deny-list and local " +
+        "pre-push hook.",
+    );
+  }
 }
 
 /**

@@ -29,6 +29,11 @@ official MCP server; the remaining work is live end-to-end verification
 ([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and the Linear workflow
 ([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
 
+Configured GitHub repositories are also checked for the server-side default-branch
+boundary. Missing protection warns and continues, distinguishing a fixable missing rule
+from protection unavailable on the current GitHub plan. A checkout-local `pre-push` hook
+blocks default-branch pushes, non-fast-forwards, and deletions as defence-in-depth.
+
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
 [`docs/adr/`](docs/adr).
