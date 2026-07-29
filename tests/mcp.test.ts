@@ -13,7 +13,6 @@ describe("the official MCP client adapter", () => {
       args: [path.resolve(import.meta.dirname, "fixtures", "mcp-stdio-server.mjs")],
       env: {},
       envVars: [],
-      writeTools: [],
       disabledTools: [],
     };
 

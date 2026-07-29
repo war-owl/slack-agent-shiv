@@ -307,7 +307,6 @@ async function runJob(
       scope: await writeScope({
         workspaceDir: workingDirectory,
         notesDir: deps.config.notesDir,
-        servers: deps.config.mcpServers,
       }),
     });
 

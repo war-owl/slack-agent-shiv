@@ -86,4 +86,10 @@ An action the coworker takes against something outside itself: opening a pull re
 
 **The Job's workspace is part of "itself".** A scratch script the coworker writes to answer a question changed nothing anyone else owns, and reporting it would be narration; a Note in the [Vault](#vault) is the human's, and is a Write. The line is what the coworker was given versus what it went out and touched.
 
+**MCP calls are conservatively over-recorded.** The engine event does not carry portable,
+trustworthy read/write metadata, so every completed MCP call uses the same permanent audit
+channel, including reads. A record saying “Used Linear · `list_issues`” reports an observed
+call; it does not claim the call changed Linear. This removes the per-server classification
+list and ensures new tools cannot silently escape the audit trail.
+
 Never revised once recorded, and never carried by [Progress](#progress).

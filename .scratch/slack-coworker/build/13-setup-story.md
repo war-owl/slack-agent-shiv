@@ -19,8 +19,8 @@ App path. Slack keeps its manifest; GitHub and Linear are entries in `mcp.json`.
 - [ ] The guide walks creation of a fine-grained GitHub PAT, selection of only the required
   repositories, and the minimum contents/issues/pull-request permissions
 - [ ] GitHub token expiry and rotation are stated plainly as operator maintenance
-- [ ] The official GitHub `mcp.json` entry, toolsets, write classifications, and disabled
-  merge/delete tools are documented
+- [ ] The official GitHub `mcp.json` entry, toolsets, automatic MCP-call auditing, and
+  optional disabled merge/delete tools are documented
 - [ ] Linear API-key setup and its lack of a repository-shaped third layer are documented
 - [ ] The complete `open-agent.config.json` and `mcp.json` schemas are documented
 - [ ] The stack's effective OpenAI-only constraint and unattended Codex authentication are

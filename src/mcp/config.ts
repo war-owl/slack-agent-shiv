@@ -6,7 +6,6 @@ import type { McpServerConfig } from "../ports/mcp.ts";
 export const DEFAULT_MCP_CONFIG_FILENAME = "mcp.json";
 
 const policyShape = {
-  writeTools: z.array(z.string().min(1)),
   disabledTools: z.array(z.string().min(1)).default([]),
   enabled: z.boolean().default(true),
   startupTimeoutSec: z.number().positive().optional(),
@@ -123,7 +122,6 @@ export async function loadMcpConfig(options: {
       const policy = {
         name,
         enabled: server.enabled,
-        writeTools: server.writeTools,
         disabledTools: server.disabledTools,
         startupTimeoutSec: server.startupTimeoutSec,
         toolTimeoutSec: server.toolTimeoutSec,

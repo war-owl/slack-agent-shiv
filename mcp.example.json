@@ -9,17 +9,6 @@
         "X-MCP-Toolsets": "repos,issues,pull_requests",
         "X-MCP-Exclude-Tools": "merge_pull_request,delete_file"
       },
-      "writeTools": [
-        "add_issue_comment",
-        "create_branch",
-        "create_or_update_file",
-        "create_pull_request",
-        "issue_write",
-        "pull_request_review_write",
-        "push_files",
-        "update_pull_request",
-        "update_pull_request_branch"
-      ],
       "disabledTools": [
         "merge_pull_request",
         "delete_file"
@@ -29,34 +18,13 @@
     "linear": {
       "type": "streamable-http",
       "url": "https://mcp.linear.app/mcp",
-      "bearerTokenEnvVar": "LINEAR_API_KEY",
-      "writeTools": [
-        "create_attachment",
-        "create_attachment_from_upload",
-        "create_initiative_label",
-        "create_issue_label",
-        "prepare_attachment_upload",
-        "resolve_diff_thread",
-        "save_comment",
-        "save_diff_comment",
-        "save_document",
-        "save_initiative",
-        "save_issue",
-        "save_milestone",
-        "save_project",
-        "save_release",
-        "save_release_note",
-        "save_status_update"
-      ],
-      "disabledTools": []
+      "bearerTokenEnvVar": "LINEAR_API_KEY"
     },
     "example-local-server": {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@vendor/example-mcp-server@1.2.3"],
       "envVars": ["EXAMPLE_API_KEY"],
-      "writeTools": [],
-      "disabledTools": [],
       "enabled": false
     }
   }

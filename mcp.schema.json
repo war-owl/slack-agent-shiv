@@ -17,19 +17,17 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "default": true },
-        "writeTools": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "disabledTools": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
         "startupTimeoutSec": { "type": "number", "exclusiveMinimum": 0 },
         "toolTimeoutSec": { "type": "number", "exclusiveMinimum": 0 }
-      },
-      "required": ["writeTools"]
+      }
     },
     "server": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "url", "writeTools"],
+          "required": ["type", "url"],
           "properties": {
             "type": { "const": "streamable-http" },
             "url": { "type": "string", "format": "uri" },
@@ -37,7 +35,6 @@
             "httpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
             "envHttpHeaders": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "default": {} },
             "enabled": { "$ref": "#/$defs/policy/properties/enabled" },
-            "writeTools": { "$ref": "#/$defs/policy/properties/writeTools" },
             "disabledTools": { "$ref": "#/$defs/policy/properties/disabledTools" },
             "startupTimeoutSec": { "$ref": "#/$defs/policy/properties/startupTimeoutSec" },
             "toolTimeoutSec": { "$ref": "#/$defs/policy/properties/toolTimeoutSec" }
@@ -46,7 +43,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "command", "writeTools"],
+          "required": ["type", "command"],
           "properties": {
             "type": { "const": "stdio" },
             "command": { "type": "string", "minLength": 1 },
@@ -55,7 +52,6 @@
             "env": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
             "envVars": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
             "enabled": { "$ref": "#/$defs/policy/properties/enabled" },
-            "writeTools": { "$ref": "#/$defs/policy/properties/writeTools" },
             "disabledTools": { "$ref": "#/$defs/policy/properties/disabledTools" },
             "startupTimeoutSec": { "$ref": "#/$defs/policy/properties/startupTimeoutSec" },
             "toolTimeoutSec": { "$ref": "#/$defs/policy/properties/toolTimeoutSec" }

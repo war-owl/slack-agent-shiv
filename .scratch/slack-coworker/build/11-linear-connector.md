@@ -9,6 +9,8 @@
 - [ ] Linear is configured as an MCP server authenticated with a plain API key as a bearer token — no OAuth, no callback, no refresh
 - [ ] The coworker can read issues, projects, and teams, and filter through the list tools (there is no issue-search tool)
 - [ ] Writes through the `save_*` upserts and comment tools each appear in the Thread's audit channel
+- [ ] Reads appear in the same audit channel by design; no Linear tool classification list
+  is required or maintained
 - [ ] The `delete_*` family is denied and unavailable
 - [ ] Preflight verifies the connector and reports its current tool count without pinning
   the full inventory; known deletion tools remain explicitly disabled

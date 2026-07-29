@@ -204,7 +204,7 @@ describe("credentials, which the file names and never holds", () => {
 });
 
 describe("connectors, which the file is the only record of", () => {
-  it("carries the write tools and the token's variable name", async () => {
+  it("carries the token's variable name without requiring policy lists", async () => {
     const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
     await writeMcp(dir, {
       mcpServers: {
@@ -212,7 +212,6 @@ describe("connectors, which the file is the only record of", () => {
           type: "streamable-http",
           url: "https://mcp.linear.app/mcp",
           bearerTokenEnvVar: "LINEAR_API_KEY",
-          writeTools: ["save_issue"],
         },
       },
     });
@@ -224,31 +223,10 @@ describe("connectors, which the file is the only record of", () => {
     expect(linear?.transport === "http" ? linear.bearerTokenEnvVar : undefined).toBe(
       "LINEAR_API_KEY",
     );
+    expect(linear?.disabledTools).toEqual([]);
     // Nothing resolved the token here. The wrapper is not in the tool path (ADR-0005) —
     // Codex reads the variable itself, so the credential never enters this process.
     expect(JSON.stringify(config)).not.toContain("lin_api");
-  });
-
-  it("insists a connector says which of its tools write", async () => {
-    const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
-    await writeMcp(dir, {
-      mcpServers: {
-        linear: {
-          type: "streamable-http",
-          url: "https://mcp.linear.app/mcp",
-          bearerTokenEnvVar: "LINEAR_API_KEY",
-        },
-      },
-    });
-
-    // An absent list means every Write through this connector leaves no trace, which is not
-    // a thing to fall into by omission.
-    const failure = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath }).catch(
-      (error: unknown) => error,
-    );
-
-    expect(String(failure)).toContain("mcpServers.linear");
-    expect(String(failure)).toContain("writeTools");
   });
 
   it("loads stdio servers and resolves their working directory beside mcp.json", async () => {
@@ -261,7 +239,6 @@ describe("connectors, which the file is the only record of", () => {
           args: ["-y", "@vendor/server@1.2.3"],
           cwd: "./tools",
           envVars: ["LOCAL_TOKEN"],
-          writeTools: [],
         },
       },
     });
@@ -282,7 +259,6 @@ describe("connectors, which the file is the only record of", () => {
           type: "streamable-http",
           url: "https://mcp.example.com/mcp",
           httpHeaders: { Authorization: "Bearer plaintext-secret" },
-          writeTools: [],
         },
       },
     });

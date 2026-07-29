@@ -19,7 +19,6 @@ describe.skipIf(!linearToken)("probing the real Linear MCP server", () => {
     bearerTokenEnvVar: "LINEAR_API_KEY",
     httpHeaders: {},
     envHttpHeaders: {},
-    writeTools: [],
     disabledTools: [],
   };
 
@@ -50,7 +49,6 @@ describe.skipIf(!githubToken)("probing the official GitHub MCP server", () => {
       "X-MCP-Exclude-Tools": "merge_pull_request,delete_file",
     },
     envHttpHeaders: {},
-    writeTools: [],
     disabledTools: ["merge_pull_request", "delete_file"],
   };
 

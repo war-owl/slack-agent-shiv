@@ -164,8 +164,8 @@ describe("the status message", () => {
     await calling.promise;
     await h.clock.advance(STATUS_POLL_MS);
 
-    // It shows up where one glance can read it, and nowhere else: no message was
-    // posted for it, only the status message the Job already had.
+    // While it is running it shows up only in the status message. The permanent connector
+    // audit is appended when the call completes, not when it merely starts.
     expect(h.slack.currentTextOf(h.slack.tsOf(0))).toContain("save_issue");
     expect(h.slack.posts).toHaveLength(1);
 
@@ -179,8 +179,8 @@ describe("the status message", () => {
     done.resolve();
     if (delivery.accepted) await delivery.completed;
 
-    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
-    expect(h.slack.posts.map((post) => post.text).join("\n")).not.toContain("save_issue");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(3);
+    expect(h.slack.posts[1]?.text).toContain("save_issue");
   });
 
   it("keeps its private working out of the channel", async () => {

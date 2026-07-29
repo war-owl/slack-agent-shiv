@@ -100,9 +100,7 @@ The included [`mcp.schema.json`](../mcp.schema.json) provides editor completion.
     "linear": {
       "type": "streamable-http",
       "url": "https://mcp.linear.app/mcp",
-      "bearerTokenEnvVar": "LINEAR_API_KEY",
-      "writeTools": ["save_issue", "save_comment"],
-      "disabledTools": []
+      "bearerTokenEnvVar": "LINEAR_API_KEY"
     }
   }
 }
@@ -128,15 +126,19 @@ official [`@modelcontextprotocol/client`](https://github.com/modelcontextprotoco
 v2 SDK during preflight. Codex receives the same validated entries through its own MCP
 configuration, so there is no second server list to synchronize.
 
-Every enabled entry also carries open-agent's policy:
+Every enabled entry may also carry open-agent's policy:
 
-- **`writeTools`** — which of its tools act on the world, so every use of one is appended to
-  the Thread as a permanent record. Required, not defaulted: an absent list means every
-  Write through this connector leaves no trace.
-- **`disabledTools`** — extra tools to disable. The irreversible ones are blocked for you
-  (below), so this is for a judgement this project has not made.
+- **`disabledTools`** — optional extra tools to disable. It defaults to `[]`. The known
+  irreversible ones are blocked for you (below), so this is for a judgement this project
+  has not made.
 - **`enabled`** — set to `false` to keep an entry without probing or exposing it.
 - **`startupTimeoutSec` / `toolTimeoutSec`** — optional Codex MCP timeouts.
+
+Every completed MCP tool call is appended to the Thread's permanent audit record. There is
+no read/write list to maintain: the engine event identifies the server, tool, outcome, and
+result but does not provide portable read/write metadata. Recording reads as well as writes
+is the deliberate cost of ensuring that a newly added tool never creates a silent audit
+gap.
 
 MCP inventories are deliberately **not pinned**. Startup verifies that each enabled server
 can be reached and reports its current tool count, but tools may appear or disappear without
@@ -177,13 +179,6 @@ inventory.
     "X-MCP-Toolsets": "repos,issues,pull_requests",
     "X-MCP-Exclude-Tools": "merge_pull_request,delete_file"
   },
-  "writeTools": [
-    "add_issue_comment",
-    "create_pull_request",
-    "issue_write",
-    "pull_request_review_write",
-    "update_pull_request"
-  ],
   "disabledTools": ["merge_pull_request", "delete_file"],
   "enabled": true
 }

@@ -1,8 +1,7 @@
 /**
  * Connectors are MCP servers named in configuration (ADR-0005) — there is no
  * plugin interface. The wrapper is not in the tool path; the only thing it does
- * with a connector is *probe* it at startup, so that a server which quietly grew a
- * tool fails loudly instead of silently granting the coworker new powers.
+ * with a connector is probe it at startup and generate Codex configuration.
  */
 
 interface McpServerPolicy {
@@ -10,16 +9,6 @@ interface McpServerPolicy {
   name: string;
   /** Disabled servers remain in mcp.json but are neither probed nor exposed to Codex. */
   enabled: boolean;
-  /**
-   * Which of this server's tools act on the world rather than read it, so that every
-   * use of one is appended to the Thread as a permanent record.
-   *
-   * Configuration rather than code, like the rest of a connector (ADR-0005) — the
-   * wrapper is not in the tool path and has no way to tell a read from a write by
-   * looking. A tool nobody listed here is a tool whose use leaves no trace, which
-   * is why each server owns its own list rather than inheriting a guess.
-   */
-  writeTools: readonly string[];
   /**
    * Tools to disable **in addition** to the ones the wrapper denies on its own.
    *

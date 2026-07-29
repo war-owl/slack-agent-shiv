@@ -7,7 +7,7 @@ entry, not a special integration module.
 **Decision:** [ADR-0007](../../../docs/adr/0007-github-is-an-official-mcp-server.md)
 supersedes the unbuilt GitHub-App-plus-`gh` design. A fine-grained PAT provides repository
 and permission scope. The official server owns GitHub protocol behavior; open-agent owns
-generic MCP transport, write audit classification, and exact disabled tools.
+generic MCP transport, audit recording for every MCP call, and exact disabled tools.
 
 **Blocked by:** 08 — Preflight
 
@@ -20,8 +20,8 @@ generic MCP transport, write audit classification, and exact disabled tools.
 - [x] The entry selects the `repos`, `issues`, and `pull_requests` toolsets
 - [x] `merge_pull_request` and `delete_file` are excluded at the server and disabled in
   Codex configuration
-- [x] Known GitHub mutating tools are listed in `writeTools` so their MCP calls use the exact
-  permanent Slack audit path
+- [x] Every completed GitHub MCP call uses the permanent Slack audit path without a
+  per-tool classification list
 - [x] Adding or removing GitHub tools does not block startup; the live count is reported like
   every other MCP server
 - [x] No GitHub-specific configuration schema, App ID, private key, installation probe,

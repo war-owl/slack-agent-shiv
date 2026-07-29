@@ -248,7 +248,7 @@ describe("the real engine", () => {
     });
 
     const writes: Write[] = [];
-    const scope = await writeScope({ workspaceDir: workspace, notesDir: vault, servers: [] });
+    const scope = await writeScope({ workspaceDir: workspace, notesDir: vault });
     const changes: EngineEvent[] = [];
     for await (const event of session.run(
       "Using your file-editing tool and not shell redirection, create exactly two files: " +
@@ -466,7 +466,6 @@ describe("the real engine", () => {
     const scope = await writeScope({
       workspaceDir: checkout,
       notesDir: path.join(repo, "vault"),
-      servers: [],
     });
     const writes: Write[] = [];
     for await (const event of session.run(

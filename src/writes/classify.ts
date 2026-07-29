@@ -1,7 +1,6 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { EngineEvent, FileChange } from "../ports/engine.ts";
-import type { McpServerConfig } from "../ports/mcp.ts";
 
 /**
  * What counts as a Write, and what to call it.
@@ -19,14 +18,14 @@ import type { McpServerConfig } from "../ports/mcp.ts";
  *   workspace has left itself. **The Vault is the exception, and it is answered for
  *   better elsewhere** — `vault/snapshot.ts` reads the directory itself, so it catches
  *   what no event mentions and can show what the Note now says.
- * - **An MCP tool call.** Known from configuration. The wrapper is not in the tool
- *   path (ADR-0005) and cannot tell a read from a write by looking, so each connector
- *   names its own writing tools alongside its URL and its token.
+ * - **An MCP tool call.** Every completed call is recorded. The wrapper is not in the
+ *   tool path (ADR-0005), and the engine event does not carry trustworthy read/write
+ *   metadata. Recording all calls is deliberately forgiving: new tools are audited
+ *   automatically, at the accepted cost of also recording reads.
  * - **A shell command.** *Not* known, and this is the honest weak point. The table
  *   below recognises the few shapes a coworker plausibly reaches for; a command it
  *   does not recognise leaves no record, and no amount of lengthening the table fixes
- *   that. It is why the connector path — the one the accountability story actually
- *   rests on — is configured rather than guessed, and why the operating manual asks
+ *   that. It is why the operating manual asks
  *   the coworker to say in its answer what it did through the shell. Skills
  *   (build/15) are where shell-shaped Writes stop being rare, and are the right place
  *   to revisit this.
@@ -84,8 +83,6 @@ export interface WriteScope {
   workspace: ScopedDirectory;
   /** The Vault, so a Note is recorded as a Note rather than as a path. */
   vault: ScopedDirectory;
-  /** Connector name → the tools on it that act on the world. */
-  writeTools: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /**
@@ -100,14 +97,10 @@ export interface WriteScope {
 export async function writeScope(input: {
   workspaceDir: string;
   notesDir: string;
-  servers: readonly McpServerConfig[];
 }): Promise<WriteScope> {
   return {
     workspace: await scopedDirectory(input.workspaceDir),
     vault: await scopedDirectory(input.notesDir),
-    writeTools: new Map(
-      input.servers.map((server) => [server.name, new Set(server.writeTools)] as const),
-    ),
   };
 }
 
@@ -142,12 +135,12 @@ export function writesIn(event: EngineEvent, scope: WriteScope): Write[] {
 
     case "tool-call": {
       if (event.status === "in-progress") return [];
-      if (!scope.writeTools.get(event.server)?.has(event.tool)) return [];
-      // A connector answers for one call and nothing else, so this one is knowable.
+      // A connector answers for one call and nothing else, so its outcome is knowable.
+      // Whether it read or wrote is not; all calls use the permanent audit path.
       const refused = event.status === "failed";
       return [
         {
-          action: `Wrote to ${event.server}`,
+          action: `Used ${event.server}`,
           ...thingWritten(refused ? undefined : urlInResult(event.result), event.tool),
           detail: event.error,
           failure: refused ? "the connector refused it" : undefined,

@@ -34,7 +34,6 @@ function linear(overrides: Partial<PartialConnector> = {}): PartialConnector {
     name: "linear",
     url: "https://mcp.linear.app/mcp",
     bearerTokenEnvVar: "LINEAR_API_KEY",
-    writeTools: ["save_issue", "save_comment"],
     ...overrides,
   };
 }
@@ -170,22 +169,6 @@ describe("a connector's tool inventory", () => {
     expect(h.logs.join("\n")).not.toContain("get_issue");
   });
 
-  it("warns when a connector names a writing tool it does not have", async () => {
-    const h = await coworkerHarness({
-      mcpServers: [linear({ writeTools: ["save_issue", "save_issues"] })],
-      env: WITH_LINEAR_TOKEN,
-    });
-    h.inventoryProber.inventories.set("linear", { tools: LINEAR_TOOLS });
-
-    await h.coworker.preflight();
-
-    // The cost of the typo is silence: Writes through the tool that was meant would never
-    // reach the Thread, and nothing else would ever mention it.
-    const warning = h.warnings.join("\n");
-    expect(warning).toContain("save_issues");
-    expect(warning).not.toContain("list_issues");
-  });
-
   it("says so plainly when nothing is configured", async () => {
     const h = await coworkerHarness();
 
@@ -262,7 +245,6 @@ describe("the generated deny-list", () => {
           name: "wiki",
           url: "https://mcp.example.com/mcp",
           bearerTokenEnvVar: "WIKI_TOKEN",
-          writeTools: ["save_page"],
         },
       ],
       env: { ...WITH_LINEAR_TOKEN, WIKI_TOKEN: "wiki_test" },

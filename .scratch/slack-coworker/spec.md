@@ -361,6 +361,8 @@ Behaviour to cover at this seam:
 - Mentions in two Threads run concurrently.
 - The status message is edited in place and refreshed within the two-minute window even when the engine emits nothing.
 - Every Write appends a new permanent message; nothing edits an existing Write record.
+- Every completed MCP tool call appends a permanent audit message, including reads, so
+  inventory evolution cannot introduce unaudited tools.
 - A created or changed Note echoes a diff into the Thread.
 - Prose in the Root note is dropped before injection, and the drop is surfaced.
 - An oversized Root note warns and is not truncated.

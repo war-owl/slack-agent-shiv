@@ -8,13 +8,17 @@ This is deliberately built before the connectors, so that no connector ever ship
 
 **Status:** ready-for-agent
 
+**Amended 2026-07-30:** Every completed MCP call is now recorded, including reads. The
+per-connector `writeTools` list was removed because maintaining it made new upstream tools
+silent by default. Connector records say “Used” rather than claiming every call wrote.
+
 - [x] Every Write is appended as its own new message in the Thread
 - [x] A Write record is never edited after it is posted
 - [x] Each record names the thing that was written and links to it wherever a link exists
 - [x] Progress updates never touch a Write record — the two channels have opposite semantics and must not share a message
 - [x] Records appear in the order the Writes happened
 - [x] Verified end to end with local file and command Writes, before any MCP connector exists
-- [x] The reporting path is shaped so that connector Writes flow through it unchanged when they arrive
+- [x] Every completed connector call flows through the permanent reporting path
 
 ## Comments
 
@@ -41,10 +45,11 @@ How it landed:
 - **What counts as a Write, in three tiers of how well it is known.** A **file change**
   outside the Job's workspace is known exactly — the workspace is the coworker's own desk,
   and `CONTEXT.md`'s *Write* entry gained a paragraph saying so, because "outside itself"
-  had to be decided before it could be implemented. An **MCP tool call** is known from
-  configuration: each connector names its own `writeTools`, which is the only option when
-  ADR-0005 keeps the wrapper out of the tool path. A **shell command** is *guessed* from a
-  small table of patterns, and that is the weak point.
+  had to be decided before it could be implemented. An **MCP tool call** is recorded
+  conservatively: the event identifies the server, tool, result, and outcome but carries no
+  portable read/write classification, so reads and writes both enter the permanent audit.
+  A **shell command** is *guessed* from a small table of patterns, and that is the weak
+  point.
 - **The engine was measured before the guessing was designed, and it changed two
   decisions.** A shell call is reported as
   `/bin/zsh -lc "git add -- README.md && git commit -m 'x' && git push -u origin main"`.
@@ -75,11 +80,10 @@ How it landed:
   `gh` prints warnings before the thing it made; and `git push` deliberately does not link
   at all, because GitHub's answer to a push is a "create a pull request" suggestion — a
   URL for something that was *not* written.
-- **`writeTools` is required in configuration, not defaulted to empty.** Both reviews
-  landed on this and they were right: a connector configured without a list would start
-  fine and record nothing, which is the silent capability gain ADR-0002 exists to refuse.
-  Preflight also warns when a named tool is not in the inventory it just probed — the cost
-  of a typo there is silence, and silence is exactly what this ticket is against.
+- **The later simplification removed connector write classification.** Requiring a complete
+  list prevented omission only at initial setup; every new upstream tool still arrived
+  unclassified and silent. Recording every completed MCP call is both smaller and more
+  forgiving. The accepted cost is visible read traffic in the permanent audit.
 - **A record Slack refuses is not allowed to disappear.** It is logged in full — from the
   `Write`, not the rendered message, so nothing is truncated to fit a Slack line — counted,
   and the Job's own answer says how many are missing. It complains *every* time, unlike
@@ -106,8 +110,8 @@ second mechanism here.
 
 ### Left for later tickets, deliberately
 
-- **A connector Write with no URL in its result names the tool, not the ticket.**
-  "Wrote to linear · `save_comment`" is thin against story 19's "which pull request, which
+- **A connector call with no URL in its result names the tool, not the ticket.**
+  "Used linear · `save_comment`" is thin against story 19's "which pull request, which
   ticket, which comment". The SDK carries the call's `arguments` and they were deliberately
   not mined: the identifier's key differs per tool and per server, and **[build/09](09-github-connector.md)**
   and **[build/11](11-linear-connector.md)** are the tickets holding real payloads to

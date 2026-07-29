@@ -277,8 +277,6 @@ describe("a connector's Writes", () => {
           name: "linear",
           url: "https://mcp.linear.app/mcp",
           bearerTokenEnvVar: "LINEAR_API_KEY",
-          // Which of a connector's tools write is configuration, not code (ADR-0005).
-          writeTools: ["save_issue", "save_comment"],
         },
       ],
     });
@@ -312,7 +310,6 @@ describe("a connector's Writes", () => {
           name: "github",
           url: "https://api.githubcopilot.com/mcp/",
           bearerTokenEnvVar: "GH_PAT",
-          writeTools: ["create_pull_request"],
         },
       ],
     });
@@ -340,7 +337,7 @@ describe("a connector's Writes", () => {
     expect(record).not.toContain("api.github.com");
   });
 
-  it("leaves reads out of the record", async () => {
+  it("records reads too, so newly added tools cannot create silent audit gaps", async () => {
     const h = await withLinear();
     h.engine.script = () => [
       {
@@ -356,7 +353,9 @@ describe("a connector's Writes", () => {
 
     await h.mention();
 
-    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
+    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
+    expect(record).toContain("linear");
+    expect(record).toContain("list_issues");
   });
 
   it("records an attempted Write the connector refused", async () => {
