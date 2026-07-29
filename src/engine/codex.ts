@@ -17,6 +17,7 @@ import type {
   Engine,
   EngineEvent,
   EngineSession,
+  RunOptions,
   SessionOptions,
 } from "../ports/engine.ts";
 
@@ -93,9 +94,15 @@ function codexSession(thread: Thread): EngineSession {
     get id() {
       return thread.id;
     },
-    run(prompt: string): AsyncIterable<EngineEvent> {
+    run(prompt: string, options?: RunOptions): AsyncIterable<EngineEvent> {
       return (async function* () {
-        const { events } = await thread.runStreamed(prompt);
+        // The SDK spawns `codex exec` with this signal, so aborting it sends the
+        // process a signal rather than just abandoning its output. Closing this
+        // generator early — a `break` in the Job runner — kills it too, because the
+        // SDK kills the child when its own stream is closed. Both routes matter: one
+        // is the bound firing, the other is the Job deciding it has heard enough.
+        const signal = options?.signal;
+        const { events } = await thread.runStreamed(prompt, signal ? { signal } : {});
         for await (const event of events) {
           yield* translate(event);
         }

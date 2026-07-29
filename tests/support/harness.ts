@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { onTestFinished } from "vitest";
-import type { Config } from "../../src/config.ts";
+import { BOUND_DEFAULTS, type Config } from "../../src/config.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
 import { openSessionStore, sessionStoreFile } from "../../src/sessions/store.ts";
@@ -19,6 +19,8 @@ export const DEFAULT_THREAD_TS = "1700000000.000100";
 export interface HarnessOptions {
   operatingManual?: string;
   mcpServers?: Config["mcpServers"];
+  /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
+  bounds?: Partial<Config["bounds"]>;
   /**
    * Reuse an existing temporary root instead of making a new one. This is how a
    * process restart is modelled: same directories on disk, everything in memory gone.
@@ -91,6 +93,10 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     stateDir,
     operatingManualPath,
     engine: { model: "gpt-5.6-sol", reasoningEffort: "low" },
+    // The shipped defaults unless a test says otherwise: a bound test that invented
+    // its own numbers would pass while the numbers a self-hoster actually runs with
+    // went untested.
+    bounds: { ...BOUND_DEFAULTS, ...options.bounds },
     mcpServers: options.mcpServers ?? [],
   };
 

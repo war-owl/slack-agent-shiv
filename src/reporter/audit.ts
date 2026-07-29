@@ -48,6 +48,11 @@ export interface AuditTrail {
   observe(event: EngineEvent): void;
   /** Wait for every queued record to have landed. Never rejects. */
   drain(): Promise<void>;
+  /**
+   * Records that landed. What is known to have happened out in the world — which is
+   * what a Job that dies has to tell the human about before they ask it again.
+   */
+  readonly recorded: number;
   /** Records Slack refused. Non-zero means the trail has a hole in it. */
   readonly unrecorded: number;
 }
@@ -66,12 +71,14 @@ export function startAuditTrail(deps: AuditDeps): AuditTrail {
    * order the Writes happened, and two overlapping `chat.postMessage` calls do not.
    */
   let pending: Promise<void> = Promise.resolve();
+  let recorded = 0;
   let unrecorded = 0;
 
   /** Never rejects: a Slack refusal is a lost record, not a failed Job. */
   const append = async (write: Write): Promise<void> => {
     try {
       await deps.slack.postMessage({ thread: deps.thread, text: render(write) });
+      recorded++;
     } catch (error) {
       unrecorded++;
       // Logged from the Write itself rather than from the rendered message: the log is
@@ -92,6 +99,10 @@ export function startAuditTrail(deps: AuditDeps): AuditTrail {
     },
 
     drain: () => pending,
+
+    get recorded() {
+      return recorded;
+    },
 
     get unrecorded() {
       return unrecorded;

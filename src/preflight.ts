@@ -34,6 +34,15 @@ export async function runPreflight(deps: {
     );
   }
 
+  // Reported because they are the wrapper's alone — the engine has no ceiling of its
+  // own — and because a self-hoster who has lowered one wants to see that it took.
+  const bounds = deps.config.bounds;
+  deps.log.info(
+    `Bounds: ${Math.round(bounds.turnTimeoutMs / 1000)}s per Turn, ` +
+      `${bounds.maxTurnsPerJob} Turns per Job, ` +
+      `${bounds.tokenBudgetPerJob} tokens per Job. A Job that hits one is stopped.`,
+  );
+
   for (const server of deps.config.mcpServers) {
     const inventory = await deps.inventoryProber.probe(server);
     deps.log.info(

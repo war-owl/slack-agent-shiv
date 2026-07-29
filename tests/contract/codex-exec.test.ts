@@ -43,6 +43,44 @@ afterAll(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
+/** Every process this one spawned directly. */
+const childPids = (): Promise<number[]> => childPidsOf(process.pid);
+
+/** The direct children of a pid. `pgrep` prints nothing and exits 1 when there are none. */
+async function childPidsOf(pid: number): Promise<number[]> {
+  const { stdout } = await promisify(execFile)("pgrep", ["-P", String(pid)]).catch(() => ({
+    stdout: "",
+  }));
+  return stdout
+    .split("\n")
+    .map((line) => Number(line.trim()))
+    .filter((child) => Number.isInteger(child) && child > 0);
+}
+
+/** Everything below a pid, however deep. A shell command is not always a direct child. */
+async function descendantsOf(pid: number): Promise<number[]> {
+  const children = await childPidsOf(pid);
+  const below = await Promise.all(children.map(descendantsOf));
+  return [...children, ...below.flat()];
+}
+
+/** Signal 0 asks the kernel whether the process exists without touching it. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(condition: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 describe("the real engine", () => {
   it("reports the version that will actually run", async () => {
     const version = await engine.version();
@@ -279,6 +317,80 @@ describe("the real engine", () => {
     expect(writes.every((write) => write.action === "Pushed to a git remote")).toBe(true);
 
     await rm(repo, { recursive: true, force: true });
+  });
+
+  /**
+   * The bounds — the wall clock, the Turn cap, the token budget, and a person typing
+   * "stop" — all reduce to one thing: abort the signal the run was given. Every one of
+   * them is worthless if that leaves a real `codex exec` running, and no fake can tell
+   * us whether it does. A Job that has been stopped and is still spending money has not
+   * been stopped.
+   *
+   * The process is found rather than assumed: the SDK spawns the binary as a direct
+   * child of this one, so anything new under this pid during the run is it.
+   */
+  it("kills the real Codex process when the run is aborted", async () => {
+    const controller = new AbortController();
+    const session = engine.startSession({ workingDirectory: workspace });
+    const before = await childPids();
+    const startedAt = Date.now();
+
+    let spawned: number[] = [];
+    let underIt: number[] = [];
+    const run = (async () => {
+      for await (const event of session.run(
+        "Run the shell command `sleep 120` and then reply with just DONE.",
+        { signal: controller.signal },
+      )) {
+        // Aborted while a command is genuinely in flight, which is the shape of every
+        // Job a bound ever stops — not a process idling between turns.
+        if (event.type === "command" && event.status === "in-progress") {
+          spawned = (await childPids()).filter((pid) => !before.includes(pid));
+          underIt = (await Promise.all(spawned.map(descendantsOf))).flat();
+          controller.abort();
+        }
+      }
+    })();
+
+    // The abort surfaces as a rejection, which is why the Job runner prefers the reason
+    // the bound holds over the one the error carries.
+    await expect(run).rejects.toThrow();
+    expect(spawned.length).toBeGreaterThan(0);
+
+    for (const pid of spawned) {
+      // SIGTERM is not instant; a couple of seconds is generous and still nothing like
+      // the two minutes the command it was running would have taken.
+      await until(() => !alive(pid), 5_000);
+      expect(alive(pid)).toBe(false);
+    }
+    // And it did not quietly wait for `sleep 120` to finish first.
+    expect(Date.now() - startedAt).toBeLessThan(90_000);
+
+    /**
+     * **The command Codex had already launched outlives it**, reparented to init.
+     * Measured, not assumed, and asserted as measured rather than as desirable: the
+     * SDK kills the process it spawned, and that process is not a process-group
+     * leader, so the `sleep 120` further down the tree keeps sleeping. Codex's own
+     * direct child does die — it is the leaf that is orphaned.
+     *
+     * This is a real limit on what "stop" means, and it is the same limit the Job's
+     * report already tells the human about: stopping unwinds nothing, and something in
+     * flight may land anyway. What it does **not** leak is spend — the model is only
+     * ever called by the process that just died — which is why the token budget is
+     * still a bound on cost.
+     *
+     * **If this starts failing, that is good news:** upstream began killing the
+     * process group, and this paragraph can go.
+     */
+    expect(underIt.length).toBeGreaterThan(0);
+    expect(underIt.some(alive)).toBe(true);
+    for (const pid of underIt) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone. Nothing to tidy.
+      }
+    }
   });
 
   it("translates a command execution, including its output and exit code", async () => {

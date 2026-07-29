@@ -4,6 +4,7 @@ import type {
   Engine,
   EngineEvent,
   EngineSession,
+  RunOptions,
   SessionOptions,
 } from "../../src/ports/engine.ts";
 import type { McpInventory, McpInventoryProber, McpServerConfig } from "../../src/ports/mcp.ts";
@@ -151,6 +152,14 @@ export interface FakeTurn {
   prompt: string;
   /** The Session it ran in — the same value a real Codex would report as its id. */
   sessionId: string;
+  /**
+   * The run was killed rather than left to finish.
+   *
+   * A fake cannot die, so this is what standing in for "the subprocess actually
+   * died" looks like at this seam: the engine was told to stop and stopped. That the
+   * real one really dies is the contract test's job.
+   */
+  aborted: boolean;
 }
 
 export class FakeEngine implements Engine {
@@ -165,9 +174,26 @@ export class FakeEngine implements Engine {
   script: EngineScript = () => [{ type: "message", text: "Done." } as const];
 
   private nextSession = 1;
+  private readonly waiting: { count: number; resolve: () => void }[] = [];
 
   async version(): Promise<string> {
     return this.versionToReport;
+  }
+
+  /**
+   * Resolves once `count` Turns have been asked for.
+   *
+   * A Job is acknowledged in the Thread well before it reaches the engine — there is a
+   * workspace to prepare and a Session to open first — so "the Job is running" is not
+   * the same moment as "the mention was accepted". A test that stops a Job, or winds
+   * the clock past a Turn's deadline, has to wait for this or it is acting on a Job
+   * that has not started.
+   */
+  started(count = 1): Promise<void> {
+    if (this.ranTurns.length >= count) return Promise.resolve();
+    const waiter = deferred();
+    this.waiting.push({ count, resolve: waiter.resolve });
+    return waiter.promise;
   }
 
   startSession(options: SessionOptions): EngineSession {
@@ -197,18 +223,50 @@ export class FakeEngine implements Engine {
       get id() {
         return id;
       },
-      run(prompt: string): AsyncIterable<EngineEvent> {
-        engine.ranTurns.push({ prompt, sessionId });
+      run(prompt: string, runOptions?: RunOptions): AsyncIterable<EngineEvent> {
+        const turn: FakeTurn = { prompt, sessionId, aborted: false };
+        engine.ranTurns.push(turn);
+        engine.settleWaiters();
         id = sessionId;
         return (async function* () {
-          yield { type: "session-started", sessionId } as const;
-          yield { type: "turn-started" } as const;
-          for await (const event of await engine.script({
-            prompt,
-            sessionId,
-            workingDirectory: options.workingDirectory,
-          })) {
-            yield event;
+          // The bounds' whole promise is that a Job which has been stopped stops
+          // *now* — not once whatever it was doing gets around to finishing. So the
+          // abort races every step, including the script's own first await: a script
+          // that never resolves is exactly the wedged engine a timeout exists for.
+          const killed = abortWhen(runOptions?.signal, () => {
+            turn.aborted = true;
+          });
+          try {
+            yield { type: "session-started", sessionId } as const;
+            yield { type: "turn-started" } as const;
+            const scripted = await Promise.race([
+              Promise.resolve(
+                engine.script({ prompt, sessionId, workingDirectory: options.workingDirectory }),
+              ),
+              killed.rejected,
+            ]);
+            const events = iterate(scripted);
+            /**
+             * A script that runs to its end is a Turn that ran to its end, and a real
+             * engine says so — `codex exec` emits `turn.completed` on the way out. It
+             * matters because the wrapper reads the *absence* of that event as "this
+             * Turn was interrupted", so a fake that never sent one would make every
+             * Job look like a crash. A script that ends in `turn-failed` gets nothing
+             * appended: that Turn genuinely did not complete.
+             */
+            let ended = false;
+            for (;;) {
+              const next = await Promise.race([
+                Promise.resolve(events.next()),
+                killed.rejected,
+              ]);
+              if (next.done === true) break;
+              ended = next.value.type === "turn-completed" || next.value.type === "turn-failed";
+              yield next.value;
+            }
+            if (!ended) yield { type: "turn-completed", usage: undefined } as const;
+          } finally {
+            killed.release();
           }
         })();
       },
@@ -230,6 +288,13 @@ export class FakeEngine implements Engine {
     return this.turnAt(turn).sessionId;
   }
 
+  private settleWaiters(): void {
+    for (const waiter of this.waiting.splice(0)) {
+      if (this.ranTurns.length >= waiter.count) waiter.resolve();
+      else this.waiting.push(waiter);
+    }
+  }
+
   private turnAt(turn: number): FakeTurn {
     const ran = this.ranTurns[turn];
     if (ran === undefined) throw new Error(`The fake engine never ran turn ${turn}`);
@@ -237,16 +302,56 @@ export class FakeEngine implements Engine {
   }
 }
 
-interface FakeRepeat {
+/** Both shapes an engine script may be written in, iterated the same way. */
+function iterate(
+  source: AsyncIterable<EngineEvent> | Iterable<EngineEvent>,
+): AsyncIterator<EngineEvent> | Iterator<EngineEvent> {
+  return Symbol.asyncIterator in source
+    ? source[Symbol.asyncIterator]()
+    : source[Symbol.iterator]();
+}
+
+/**
+ * A promise that rejects the moment the signal fires, and never otherwise.
+ *
+ * Raced against each step of a run so that a stop is felt immediately. The handler
+ * attached to it is not decoration: a race the abort loses would otherwise leave a
+ * rejected promise nobody handled, and vitest fails the whole file on one of those.
+ */
+function abortWhen(
+  signal: AbortSignal | undefined,
+  onAbort: () => void,
+): { rejected: Promise<never>; release: () => void } {
+  if (!signal) return { rejected: new Promise<never>(() => {}), release: () => {} };
+
+  let listener = (): void => {};
+  const rejected = new Promise<never>((_resolve, reject) => {
+    listener = () => {
+      onAbort();
+      const error = new Error("The operation was aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+    if (signal.aborted) listener();
+    else signal.addEventListener("abort", listener, { once: true });
+  });
+  rejected.catch(() => {});
+
+  return { rejected, release: () => signal.removeEventListener("abort", listener) };
+}
+
+interface FakeTimer {
   intervalMs: number;
   tick: () => void | Promise<void>;
   dueAt: number;
   stopped: boolean;
+  /** A deadline rather than a cadence: it fires once and is done. */
+  once: boolean;
 }
 
 export class FakeClock implements Clock {
   private current: number;
-  private readonly repeats: FakeRepeat[] = [];
+  private readonly timers: FakeTimer[] = [];
 
   constructor(startingAt = 1_700_000_000_000) {
     this.current = startingAt;
@@ -257,18 +362,11 @@ export class FakeClock implements Clock {
   }
 
   every(intervalMs: number, tick: () => void | Promise<void>): Stoppable {
-    const repeat: FakeRepeat = {
-      intervalMs,
-      tick,
-      dueAt: this.current + intervalMs,
-      stopped: false,
-    };
-    this.repeats.push(repeat);
-    return {
-      stop: () => {
-        repeat.stopped = true;
-      },
-    };
+    return this.schedule(intervalMs, tick, false);
+  }
+
+  after(delayMs: number, tick: () => void | Promise<void>): Stoppable {
+    return this.schedule(delayMs, tick, true);
   }
 
   /**
@@ -278,15 +376,36 @@ export class FakeClock implements Clock {
   async advance(ms: number): Promise<void> {
     const until = this.current + ms;
     for (;;) {
-      const due = this.repeats
-        .filter((repeat) => !repeat.stopped && repeat.dueAt <= until)
+      const due = this.timers
+        .filter((timer) => !timer.stopped && timer.dueAt <= until)
         .sort((left, right) => left.dueAt - right.dueAt)[0];
       if (due === undefined) break;
       this.current = due.dueAt;
-      due.dueAt += due.intervalMs;
+      if (due.once) due.stopped = true;
+      else due.dueAt += due.intervalMs;
       await due.tick();
     }
     this.current = until;
+  }
+
+  private schedule(
+    intervalMs: number,
+    tick: () => void | Promise<void>,
+    once: boolean,
+  ): Stoppable {
+    const timer: FakeTimer = {
+      intervalMs,
+      tick,
+      dueAt: this.current + intervalMs,
+      stopped: false,
+      once,
+    };
+    this.timers.push(timer);
+    return {
+      stop: () => {
+        timer.stopped = true;
+      },
+    };
   }
 }
 

@@ -22,6 +22,62 @@ export const RECORDED_CODEX_VERSION = "0.145.0";
  */
 export const OPERATING_MANUAL_MAX_BYTES = 32 * 1024;
 
+/**
+ * The bounds, and why these numbers.
+ *
+ * Codex supplies none of this — it reports usage after the fact and offers no
+ * ceiling, no max-Turns and no kill switch — so every one of these is the wrapper's,
+ * and the default is what almost every self-hoster will actually run with. The brief
+ * is that a runaway Job is an annoyance rather than a bill, without making
+ * "delegate and walk away" into a three-minute timeout.
+ */
+export const BOUND_DEFAULTS = {
+  /**
+   * An hour on one Turn.
+   *
+   * Under `exec` a Job is normally **one** Turn, so this is in practice the ceiling
+   * on a whole Job — and the product promise is work that takes "minutes or hours".
+   * Ten minutes would be a wedge detector that also killed real work.
+   *
+   * **Which makes this the only bound on a single runaway Turn, and an hour of one is
+   * not nothing.** Usage arrives at turn completion and nowhere else, so the budget
+   * below cannot stop a Turn that is already spending — it can only refuse the next
+   * one. If an hour of unattended spend is not acceptable, this is the number to
+   * lower, and lowering it costs long Jobs rather than safety.
+   */
+  turnTimeoutMs: 60 * 60 * 1000,
+  /**
+   * Eight Turns.
+   *
+   * A Job is one Turn today, and gains a second when the Librarian pass arrives. The
+   * cap is not tuned to that: it exists so that a Job which has started looping has
+   * somewhere to stop, and eight is far enough above any legitimate shape that
+   * hitting it is information.
+   */
+  maxTurnsPerJob: 8,
+  /**
+   * A million tokens across the Job.
+   *
+   * Counted exactly as the engine reports them, cached input included. That
+   * over-counts against price — cached input is roughly a tenth the cost — and it is
+   * deliberately the safe direction for a bound to be wrong in. This is a ceiling on
+   * volume, not a budget in currency, and the instance cannot compute the latter: it
+   * does not know the price of the model it was pointed at.
+   */
+  tokenBudgetPerJob: 1_000_000,
+} as const;
+
+const boundsSchema = z.object({
+  /** Wall clock on a single Turn. Expiring hard-kills the engine's process. */
+  turnTimeoutMs: z.number().int().positive(),
+  /** How many Turns one Job may run before it is stopped. */
+  maxTurnsPerJob: z.number().int().positive(),
+  /** Cumulative tokens across the Job, accumulated from turn-completion usage. */
+  tokenBudgetPerJob: z.number().int().positive(),
+});
+
+export type Bounds = z.infer<typeof boundsSchema>;
+
 export const configSchema = z.object({
   slack: z.object({
     botToken: z.string().min(1),
@@ -46,6 +102,8 @@ export const configSchema = z.object({
     /** Left unset, the `codex` on `PATH` is used, falling back to the vendored one. */
     codexPath: z.string().min(1).optional(),
   }),
+  /** What stops a Job that does not stop by itself. See {@link BOUND_DEFAULTS}. */
+  bounds: boundsSchema,
   /** Connectors, as MCP server configuration. Empty until the connector tickets. */
   mcpServers: z.array(
     z.object({
@@ -100,6 +158,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       reasoningEffort: env.CODEX_REASONING_EFFORT ?? defaults.reasoningEffort,
       codexPath: env.CODEX_PATH,
     },
+    bounds: {
+      turnTimeoutMs: numberFromEnv(env.TURN_TIMEOUT_MS, BOUND_DEFAULTS.turnTimeoutMs),
+      maxTurnsPerJob: numberFromEnv(env.MAX_TURNS_PER_JOB, BOUND_DEFAULTS.maxTurnsPerJob),
+      tokenBudgetPerJob: numberFromEnv(env.TOKEN_BUDGET_PER_JOB, BOUND_DEFAULTS.tokenBudgetPerJob),
+    },
     mcpServers: [],
   });
 
@@ -114,4 +177,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   return parsed.data;
+}
+
+/**
+ * A number from the environment, or the default when it was not set.
+ *
+ * Something unparseable is passed through as `NaN` rather than quietly falling back
+ * to the default: a self-hoster who typed `TOKEN_BUDGET_PER_JOB=1_000_000` has said
+ * what they want, and running with a different bound than the one they wrote is the
+ * silent kind of wrong. The schema rejects it and the startup message names the field.
+ */
+function numberFromEnv(value: string | undefined, fallback: number): number {
+  return value === undefined || value.trim() === "" ? fallback : Number(value);
 }

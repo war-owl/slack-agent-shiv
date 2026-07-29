@@ -365,7 +365,8 @@ describe("one Session per Thread", () => {
     ["truncated", "{ \"version\": 1, \"sessions\": { "],
     ["empty", ""],
     ["null", "null"],
-    ["from a future version", '{ "version": 2, "sessions": {} }'],
+    ["from a future version", '{ "version": 3, "sessions": {} }'],
+    ["from a version before this one", '{ "version": 1, "sessions": { "abc": "def" } }'],
   ])("refuses to start on a Session store that is %s", async (_shape, contents) => {
     const h = await coworkerHarness();
     await h.mention();

@@ -78,12 +78,28 @@ export interface SessionOptions {
   writableDirectories?: readonly string[];
 }
 
+export interface RunOptions {
+  /**
+   * Stop the Turn, killing the engine's process.
+   *
+   * The engine offers no ceiling of its own — no timeout, no max-Turns, no budget,
+   * no kill switch — so every bound in this system is the wrapper's, and this is the
+   * one primitive all of them are built on. Aborting must actually terminate the
+   * subprocess rather than merely stopping the wrapper reading from it: a Job that
+   * has been stopped and is still spending money has not been stopped.
+   *
+   * The iteration throws when this fires. Whoever aborted knows why, and that reason
+   * is better than the one the abort carries.
+   */
+  signal?: AbortSignal | undefined;
+}
+
 /** One Session — the coworker's accumulated understanding of one Thread. */
 export interface EngineSession {
   /** The engine's own identifier for this Session. Populated once a Turn starts. */
   readonly id: string | null;
   /** Run one Turn, streaming what happens as it happens. */
-  run(prompt: string): AsyncIterable<EngineEvent>;
+  run(prompt: string, options?: RunOptions): AsyncIterable<EngineEvent>;
 }
 
 export interface Engine {

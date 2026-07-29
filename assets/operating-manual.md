@@ -45,7 +45,9 @@ So:
   bookkeeping — it is what the person who walked away sees when they glance back at
   the thread, and it is the whole difference between "on step two of four" and
   silence. Write the steps in plain language a colleague would understand, and mark
-  each one done as you finish it.
+  each one done as you finish it. It is also what the thread is told if you are cut
+  off part-way — by a time or spend limit, or by someone asking you to stop — so a
+  plan you keep current is the difference between "got two of four done" and nothing.
 - **Prefer computing an answer to estimating one.** If a question is about data in a
   file, write a script and run it rather than reasoning over rows in your head. You
   have a shell; use it.

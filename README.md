@@ -7,15 +7,16 @@ laptop, and come back to the work done.
 So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md)),
 one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)),
 a progress message ([build/03](.scratch/slack-coworker/build/03-progress-status-message.md)),
-and an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)):
+an audit trail ([build/04](.scratch/slack-coworker/build/04-audit-writes.md)),
+and bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)):
 a mention goes in, one message keeps you posted on the plan and the step it is on, every
 action it takes out in the world is appended to the thread permanently, and an answer
 comes back into the same thread — where a follow-up days later resumes the same
 conversation without you restating anything. Each thread gets its own session and
 is never handed another thread's — though it is not yet *prevented* from going and
 reading one, which is measured and written down in
-[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no Vault and no connectors,
-and nothing yet bounds how long a Job may run.
+[ADR-0003](docs/adr/0003-vault-is-the-memory.md). There is no Vault and no connectors
+yet.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
@@ -35,6 +36,28 @@ The only thing the instance keeps for itself is `.state/sessions.json`: which Co
 session each Slack thread resumes into. Conversations live on Codex's disk and notes
 will live in the Vault, so that one small file is all this project persists — delete
 it and every thread starts over as if it had never spoken to you.
+
+## What stops a runaway job
+
+Codex has no limits of its own — no timeout, no cap on turns, no budget, no kill
+switch — so all three are this wrapper's, and they are the ones you get by doing
+nothing: **an hour on a single turn, eight turns per job, and a million tokens per
+job.** A job that hits one is killed and says in the thread which limit stopped it,
+how far it had got, and that whatever it had already done out in the world still
+stands. All three are configurable in `.env`.
+
+Worth knowing before you leave the defaults alone: Codex reports what a turn cost only
+once the turn is over, and a whole job is normally one turn — so the token budget can
+refuse the *next* turn but cannot stop one that is already spending. **The hour is
+therefore the real ceiling on a single runaway turn.** Lower `TURN_TIMEOUT_MS` if an
+hour of unattended spend is more than you want to risk; it costs long jobs, not safety.
+
+You can also stop a job yourself: **`@coworker stop`, and nothing else in the
+message.** A mention that says anything more is a correction, not a kill switch.
+Stopping kills the engine, but a shell command it had already launched can outlive it
+— see [build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md#the-limit-on-what-stop-means).
+
+Nothing yet bounds how many jobs run at once; each job is bounded, the instance is not.
 
 It runs against the `codex` on your `PATH` — the installation you log in with and
 upgrade — falling back to the copy in `node_modules` if there is none, and reporting
