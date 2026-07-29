@@ -35,7 +35,6 @@ function linear(overrides: Partial<PartialConnector> = {}): PartialConnector {
     url: "https://mcp.linear.app/mcp",
     bearerTokenEnvVar: "LINEAR_API_KEY",
     writeTools: ["save_issue", "save_comment"],
-    pinnedTools: LINEAR_TOOLS,
     ...overrides,
   };
 }
@@ -86,6 +85,17 @@ describe("the engine and the bounds", () => {
     expect(h.logs.join("\n")).toContain("90s per Turn");
   });
 
+  it("reports that per-Job limits are disabled by default", async () => {
+    const h = await coworkerHarness();
+
+    await h.coworker.preflight();
+
+    const logs = h.logs.join("\n");
+    expect(logs).toContain("no per-Turn timeout");
+    expect(logs).toContain("no Turn cap");
+    expect(logs).toContain("no token budget");
+  });
+
   it("says where its configuration came from", async () => {
     const h = await coworkerHarness();
 
@@ -127,7 +137,7 @@ describe("credentials", () => {
 });
 
 describe("a connector's tool inventory", () => {
-  it("reports it, and the fingerprint it matched", async () => {
+  it("reports the currently available tools", async () => {
     const h = await coworkerHarness({ mcpServers: [linear()], env: WITH_LINEAR_TOKEN });
     h.inventoryProber.inventories.set("linear", { tools: LINEAR_TOOLS });
 
@@ -135,61 +145,29 @@ describe("a connector's tool inventory", () => {
 
     const logs = h.logs.join("\n");
     expect(logs).toContain(`Connector linear: ${LINEAR_TOOLS.length} tools`);
-    expect(logs).toMatch(/sha256:[0-9a-f]{64}/);
+    expect(logs).toContain("inventory changes are allowed");
   });
 
-  it("does not read a reordered inventory as a change", async () => {
-    const h = await coworkerHarness({ mcpServers: [linear()], env: WITH_LINEAR_TOKEN });
-    h.inventoryProber.inventories.set("linear", { tools: [...LINEAR_TOOLS].reverse() });
-
-    // A false alarm here is worse than none: the remedy for an alarm is "re-pin", and an
-    // operator who has learned that re-pinning is routine will re-pin the day it matters.
-    await h.coworker.preflight();
-
-    expect(h.warnings).toEqual([]);
-  });
-
-  it("fails loudly, naming the tool that appeared, when the server has grown one", async () => {
+  it("allows a server to add tools without blocking startup", async () => {
     const h = await coworkerHarness({ mcpServers: [linear()], env: WITH_LINEAR_TOKEN });
     h.inventoryProber.inventories.set("linear", {
       tools: [...LINEAR_TOOLS, "merge_and_deploy"],
     });
 
-    const failure = await h.coworker.preflight().catch((error: unknown) => error);
+    await h.coworker.preflight();
 
-    // Not survivable: a connector growing a tool is a silent capability gain, and Linear
-    // shipping `merge_diff` unannounced is the measured evidence that it happens.
-    expect(String(failure)).toContain("merge_and_deploy");
-    // With the new fingerprint in hand, because re-pinning is the intended outcome of an
-    // informed review and nobody should have to compute a hash to act on this.
-    expect(String(failure)).toMatch(/sha256:[0-9a-f]{64}/);
+    expect(h.logs.join("\n")).toContain(`${LINEAR_TOOLS.length + 1} tools`);
   });
 
-  it("fails loudly, naming the tool that went away, when the server has dropped one", async () => {
+  it("allows a server to remove tools without blocking startup", async () => {
     const h = await coworkerHarness({ mcpServers: [linear()], env: WITH_LINEAR_TOKEN });
     h.inventoryProber.inventories.set("linear", {
       tools: LINEAR_TOOLS.filter((tool) => tool !== "get_issue"),
     });
 
-    const failure = await h.coworker.preflight().catch((error: unknown) => error);
+    await h.coworker.preflight();
 
-    expect(String(failure)).toContain("get_issue");
-  });
-
-  it("refuses to start an unpinned connector, and hands over the inventory to pin", async () => {
-    const h = await coworkerHarness({
-      mcpServers: [linear({ pinnedTools: [] })],
-      env: WITH_LINEAR_TOKEN,
-    });
-    h.inventoryProber.inventories.set("linear", { tools: LINEAR_TOOLS });
-
-    const failure = await h.coworker.preflight().catch((error: unknown) => error);
-
-    // Adopting whatever the server says on first run would make the mechanism worthless:
-    // the one moment a human is certainly watching is the moment they add the connector.
-    expect(String(failure)).toMatch(/no pinned tool inventory/i);
-    // Costing a paste rather than a script.
-    expect(String(failure)).toContain("save_issue");
+    expect(h.logs.join("\n")).not.toContain("get_issue");
   });
 
   it("warns when a connector names a writing tool it does not have", async () => {
@@ -224,9 +202,7 @@ describe("the generated deny-list", () => {
 
     await h.coworker.preflight();
 
-    // Generated from the pin rather than configured, so it cannot be forgotten and cannot
-    // be mistyped — a deny-list entry naming a tool that does not exist is a boundary that
-    // silently is not there.
+    // A fixed floor independent of the server's changing inventory.
     const logs = h.logs.join("\n");
     expect(logs).toContain("merge_diff");
     expect(logs).toContain("submit_diff_review");
@@ -242,7 +218,7 @@ describe("the generated deny-list", () => {
 
     // The criterion is "can a human undo this after noticing it in the Thread?", not
     // "is it a write" — `save_issue` is an upsert and stays available.
-    const disabled = h.logs.join("\n").match(/tool\(s\) disabled.*/)?.[0] ?? "";
+    const disabled = h.logs.join("\n").match(/tool name\(s\) disabled.*/)?.[0] ?? "";
     expect(disabled).not.toContain("save_issue");
     expect(disabled).not.toContain("list_issues");
   });
@@ -256,7 +232,7 @@ describe("the generated deny-list", () => {
 
     await h.coworker.preflight();
 
-    const disabled = h.logs.join("\n").match(/tool\(s\) disabled.*/)?.[0] ?? "";
+    const disabled = h.logs.join("\n").match(/tool name\(s\) disabled.*/)?.[0] ?? "";
     expect(disabled).toContain("save_comment");
     // Configuration adds to the floor; it cannot lower it.
     expect(disabled).toContain("merge_diff");
@@ -285,7 +261,6 @@ describe("the generated deny-list", () => {
           url: "https://mcp.example.com/mcp",
           bearerTokenEnvVar: "WIKI_TOKEN",
           writeTools: ["save_page"],
-          pinnedTools: ["get_page", "save_page", "delete_page"],
         },
       ],
       env: { ...WITH_LINEAR_TOKEN, WIKI_TOKEN: "wiki_test" },
@@ -297,9 +272,11 @@ describe("the generated deny-list", () => {
 
     await h.coworker.preflight();
 
-    // Extension cannot quietly widen the blast radius: a connector nobody wrote a policy
-    // for still arrives with `delete_*` disabled.
-    expect(h.logs.join("\n")).toMatch(/Connector wiki: 1 tool\(s\) disabled.*delete_page/);
+    // Every connector receives the same fixed irreversible-tool floor without needing a
+    // reviewed inventory snapshot.
+    expect(h.logs.join("\n")).toMatch(
+      /Connector wiki: 6 exact tool name\(s\) disabled.*merge_diff/,
+    );
   });
 });
 

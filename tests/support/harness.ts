@@ -5,6 +5,7 @@ import { BOUND_DEFAULTS, type Config, type GitHubAppConfig } from "../../src/con
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
+import type { McpHttpServerConfig } from "../../src/ports/mcp.ts";
 import { openSessionStore, sessionStoreFile } from "../../src/sessions/store.ts";
 import {
   createMentionGateway,
@@ -28,11 +29,6 @@ export interface HarnessOptions {
   operatingManual?: string;
   /**
    * Connectors, as configuration names them.
-   *
-   * `pinnedTools` and `disabledTools` default to empty, which is a *failing* instance rather
-   * than a neutral one: an unpinned connector does not start. That is deliberate — a harness
-   * that quietly pinned whatever the fake advertised would make the startup check untestable
-   * by making it unfailable.
    */
   mcpServers?: readonly PartialConnector[];
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
@@ -59,12 +55,15 @@ export interface HarnessOptions {
   skillsDir?: string;
 }
 
-/** A connector as a test writes it: the pin and the extra deny-list are optional. */
+/** A connector as a test writes it: transport defaults and the deny-list are optional. */
 export type PartialConnector = Omit<
-  Config["mcpServers"][number],
-  "pinnedTools" | "disabledTools"
+  McpHttpServerConfig,
+  "transport" | "enabled" | "httpHeaders" | "envHttpHeaders" | "disabledTools"
 > & {
-  pinnedTools?: readonly string[];
+  transport?: "http";
+  enabled?: boolean;
+  httpHeaders?: Readonly<Record<string, string>>;
+  envHttpHeaders?: Readonly<Record<string, string>>;
   disabledTools?: readonly string[];
 };
 
@@ -138,6 +137,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
 
   const config: Config = {
     source: "the test harness",
+    mcpConfigSource: "the test harness mcp.json",
     slack: { botToken: "xoxb-test", appToken: "xapp-test" },
     notesDir,
     skillsDir,
@@ -160,7 +160,10 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
             ...options.github,
           },
     mcpServers: (options.mcpServers ?? []).map((server) => ({
-      pinnedTools: [],
+      transport: "http" as const,
+      enabled: true,
+      httpHeaders: {},
+      envHttpHeaders: {},
       disabledTools: [],
       ...server,
     })),

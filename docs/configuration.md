@@ -1,20 +1,21 @@
 # Configuration
 
-One file, and secrets in the environment.
+One instance file, one MCP registry, and secrets in the environment.
 
 `open-agent.config.json` describes the instance: where the Vault is, what stops a runaway
-Job, which model, which connectors, which GitHub App. It **names** credentials — the
-environment variable each one lives in — and never contains them, exactly as a
-[Skill](../CONTEXT.md#skill) does. So it is safe to commit, diff, and paste into an issue,
-and `.env` is not configuration at all: it is the keyring.
+Job, which model, which GitHub App, and where its MCP registry lives. `mcp.json` is the
+single extensible registry for every MCP server. Both files **name** credentials by
+environment variable and never contain their values, exactly as a
+[Skill](../CONTEXT.md#skill) does. `.env` is the keyring.
 
 The environment configures nothing else. Two sources for one setting is how an instance ends
 up running with bounds nobody wrote down. The single exception is `CONFIG_PATH`, which says
 where the file is and cannot live inside it.
 
-Start from [`open-agent.config.example.json`](../open-agent.config.example.json). Every
-section is optional; a missing file runs the shipped defaults, which is a Slack bot with a
-Vault and no connectors.
+Start from [`open-agent.config.example.json`](../open-agent.config.example.json) and
+[`mcp.example.json`](../mcp.example.json). Every instance section is optional. `mcpConfig`
+defaults to `mcp.json` beside the instance file; when that default file is absent, the
+instance runs without MCP servers. An explicitly named missing MCP file is an error.
 
 **Relative paths resolve against the file's own directory**, not the working directory, so a
 checkout that moves stays configured.
@@ -65,11 +66,16 @@ alone and `skills` follows it.
 
 What stops a Job that does not stop by itself. Codex supplies none of this — no timeout, no
 cap on turns, no budget, no kill switch — so these are the only ones there are. The
-defaults are in `src/config.ts` with the reasoning for each number; lower them freely.
+three per-Job limits are disabled by default and can be enabled independently:
+`turnTimeoutMs`, `maxTurnsPerJob`, and `tokenBudgetPerJob`.
 
-The one to lower first is `turnTimeoutMs`. A Job is normally one Turn, so an hour is in
-practice the ceiling on unattended spend, and the token budget cannot help: usage arrives at
-turn completion, so it can refuse the *next* Turn but not stop the one that is spending.
+A Job is normally one Turn, and token usage arrives only at Turn completion. A configured
+token budget can therefore refuse the *next* Turn but cannot interrupt the one already
+spending; configure `turnTimeoutMs` when a hard wall-clock ceiling is required.
+
+`maxConcurrentJobs` still defaults to four to protect shared Slack rate limits, and
+`librarianTimeoutMs` defaults to five minutes because curation is best-effort work that
+should not hold the next Job indefinitely.
 
 ### `engine`
 
@@ -77,38 +83,67 @@ turn completion, so it can refuse the *next* Turn but not stop the one that is s
 across many shallow Jobs; if considered answers come back thin, this is the first dial to
 turn, not the prompt.
 
-### `connectors`
+### `mcpConfig` and `mcp.json`
 
-Each entry is an MCP server ([ADR-0005](adr/0005-connectors-are-mcp-config.md)). The wrapper
-is not in the tool path: Codex holds the connection and calls it directly, so a connector is
-configuration rather than code.
+`mcpConfig` points to the one MCP registry and defaults to `./mcp.json`:
+
+```json
+"mcpConfig": "./mcp.json"
+```
+
+The registry is an `mcpServers` map. MCP standardizes the protocol and transports, but
+does not currently standardize this file format; this is open-agent's validated contract.
+The included [`mcp.schema.json`](../mcp.schema.json) provides editor completion.
 
 ```json
 {
-  "name": "linear",
-  "url": "https://mcp.linear.app/mcp",
-  "bearerTokenEnvVar": "LINEAR_API_KEY",
-  "writeTools": ["save_issue", "save_comment"],
-  "pinnedTools": ["get_issue", "list_issues", "…every tool it advertises"],
-  "disabledTools": []
+  "$schema": "./mcp.schema.json",
+  "mcpServers": {
+    "linear": {
+      "type": "streamable-http",
+      "url": "https://mcp.linear.app/mcp",
+      "bearerTokenEnvVar": "LINEAR_API_KEY",
+      "writeTools": ["save_issue", "save_comment"],
+      "disabledTools": []
+    }
+  }
 }
 ```
+
+Adding a server is one new object. A remote server uses `type: "streamable-http"` with:
+
+- `url`
+- optional `bearerTokenEnvVar`
+- optional non-secret `httpHeaders`
+- optional `envHttpHeaders`, mapping header names to environment-variable names
+
+A local server uses `type: "stdio"` with:
+
+- `command` and optional `args`
+- optional `cwd`, resolved relative to `mcp.json`
+- optional non-secret `env`
+- optional `envVars`, naming variables to forward without copying their values into config
+
+Local stdio entries execute software on the host. Pin package versions in their arguments;
+startup prints a warning naming every local command. Both transports are handled by the
+official [`@modelcontextprotocol/client`](https://github.com/modelcontextprotocol/typescript-sdk)
+v2 SDK during preflight. Codex receives the same validated entries through its own MCP
+configuration, so there is no second server list to synchronize.
+
+Every enabled entry also carries open-agent's policy:
 
 - **`writeTools`** — which of its tools act on the world, so every use of one is appended to
   the Thread as a permanent record. Required, not defaulted: an absent list means every
   Write through this connector leaves no trace.
-- **`pinnedTools`** — the whole inventory, as it stood when a human last reviewed it.
-  Startup probes the live server and **refuses to run** when the two disagree, naming what
-  appeared and what went away. This is not a formality: Linear shipped `merge_diff` into a
-  surface nobody re-reviewed, and MCP's own `destructiveHint` annotations cannot be trusted
-  to flag that sort of thing.
 - **`disabledTools`** — extra tools to disable. The irreversible ones are blocked for you
   (below), so this is for a judgement this project has not made.
+- **`enabled`** — set to `false` to keep an entry without probing or exposing it.
+- **`startupTimeoutSec` / `toolTimeoutSec`** — optional Codex MCP timeouts.
 
-**Adding a connector is a first-run review.** Leave `pinnedTools` empty and startup refuses,
-printing the inventory to paste in. That is on purpose: the one moment somebody is certainly
-watching is the moment they add the connector, and an inventory adopted without being read
-is a review that never happened.
+MCP inventories are deliberately **not pinned**. Startup verifies that each enabled server
+can be reached and reports its current tool count, but tools may appear or disappear without
+blocking the service. This keeps upstream server releases from turning into open-agent
+outages. If a particular tool should never be available, name it in `disabledTools`.
 
 #### What is blocked for you
 
@@ -119,15 +154,17 @@ does not exist from the coworker's point of view:
 | --- | --- |
 | `merge_diff` | Puts commits in a repository. Not undoable from a Thread. |
 | `submit_diff_review` | Approves someone's code in the coworker's name. |
-| `delete_*` (any server) | The commonest irreversible verb. |
+| Known Linear deletion tools | The deletion tools measured when the safety floor was written. |
 
 The criterion is not "dangerous" but **"can a human undo this after noticing it in the
 Thread?"** A wrong comment is embarrassing and stays available; Linear's `save_issue` is an
 upsert and stays available too, because drawing that line at argument granularity is not
 something the tool path can express.
 
-Generated rather than configured so it cannot be forgotten and cannot be mistyped — a
-deny-list naming a tool that does not exist is a boundary that silently is not there.
+The fixed floor covers tool names already reviewed by this project. It does not infer that a
+new tool is dangerous from its name or MCP annotations. New capabilities are allowed by
+default; operators can add tool names to `disabledTools` without maintaining a complete
+inventory.
 
 ### `github`
 

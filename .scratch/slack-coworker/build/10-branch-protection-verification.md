@@ -4,7 +4,7 @@
 
 This is the third layer of the action boundary. It became per-repository and opt-in when fine-grained PATs were ruled out, so this check is the entire mitigation for that weakening — it is not a nicety and must not be dropped for convenience.
 
-**And it is now more than that.** [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) moved GitHub out of the MCP tool path, which removed **layer 2** for GitHub entirely — no deny-list, no inventory pin, nothing that makes `gh pr merge` unavailable. Branch protection is no longer the third of three layers on GitHub; it is the **second of two**, and the other one is a sentence in a Markdown file. Everything below that reads as "belt and braces" should be read as "the braces".
+**And it is now more than that.** [ADR-0006](../../../docs/adr/0006-github-is-a-skill-over-gh.md) moved GitHub out of the MCP tool path, which removed **layer 2** for GitHub entirely — no deny-list and nothing that makes `gh pr merge` unavailable. Branch protection is no longer the third of three layers on GitHub; it is the **second of two**, and the other one is a sentence in a Markdown file. Everything below that reads as "belt and braces" should be read as "the braces".
 
 **Blocked by:** 09 — GitHub as a Skill over `gh`; and Checks A and B on [Provision a Slack app, a test workspace, and GitHub/Linear tokens](../issues/05-provision-accounts-and-tokens.md)
 

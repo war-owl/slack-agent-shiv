@@ -364,7 +364,7 @@ describe("the shipped starter Skills", () => {
     expect(readme).toMatch(/never contains a credential/i);
     expect(readme).toMatch(/environment variable/i);
     // And the one that is easy to leave out and expensive to omit: a Skill drives the
-    // shell, so the deny-list and inventory pin do not cover it.
+    // shell, so the MCP deny-list does not cover it.
     expect(readme).toMatch(/credential is the entire boundary/i);
     expect(readme).toMatch(/read-only database role is a \*\*requirement\*\*/i);
   });

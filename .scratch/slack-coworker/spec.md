@@ -59,8 +59,11 @@ It also does work that has nothing to do with code. Drop a CSV into the Thread a
 21. As a security-conscious operator, I want merges to a *protected* default branch to fail server-side even when the coworker's own token attempts them, so that the worst thing an injected instruction can achieve is something a human can undo.
 21a. As a self-hoster on a free plan, I want to be told clearly that my private repositories **cannot** be protected and what I am therefore running without, so that I am making a choice rather than holding a false belief.
 22. As a security-conscious operator, I want the coworker unable to delete a repository or administer the organisation, so that the most destructive actions are absent from the credential entirely.
-23. As a security-conscious operator, I want the instance to refuse to start if a connector's tool inventory has changed since it was pinned, so that a hosted server adding a tool fails loudly instead of silently granting the coworker new powers.
-24. As a security-conscious operator, I want the startup failure to tell me exactly which tools appeared or disappeared, so that re-pinning is an informed decision rather than a rubber stamp.
+23. As a self-hoster, I want connector tool inventories to evolve without startup
+lock-outs, so that upstream additions, removals, and renames do not require routine
+configuration maintenance.
+24. As an operator, I want startup to report each connector's current tool count, so that
+its reachable surface remains visible without becoming an approval gate.
 25. As a security-conscious operator, I want the setup guide to tell me precisely which token scopes to issue, which to withhold, and why each decision was made, so that least privilege is the default path rather than the diligent path.
 
 ### Memory that a human owns
@@ -99,7 +102,9 @@ It also does work that has nothing to do with code. Drop a CSV into the Thread a
 44. As an operator, I want a per-Turn wall-clock timeout that hard-kills the subprocess, so that a wedged Job costs minutes rather than a weekend.
 45. As an operator, I want a cap on Turns per Job, so that a loop cannot run indefinitely.
 46. As an operator, I want a cumulative token budget per Job that stops the Job when exceeded, so that a runaway is an annoyance rather than a bill.
-47. As an operator, I want all three bounds configurable with conservative defaults, so that the safe setting is the one I get by doing nothing.
+47. As an operator, I want the per-Turn timeout, Turn cap, and token budget independently
+configurable but disabled by default, so ordinary long-running work is not stopped unless I
+choose a ceiling.
 48. As a delegator, I want to be told in the Thread when a Job was stopped by a bound rather than finishing, so that I do not mistake a truncated result for a complete one.
 49. As an operator, I want the same Slack event delivered twice to produce one Job, so that Slack's retry behaviour does not double the work or the spend.
 50. As an operator, I want the instance to survive a Slack disconnect and reconnect without losing its Session mappings, so that a network blip is not a memory wipe.
@@ -108,12 +113,16 @@ It also does work that has nothing to do with code. Drop a CSV into the Thread a
 
 51. As a self-hoster, I want to create my own Slack app from a provided manifest, so that setup is a paste rather than a form-filling exercise — and so that I am not throttled by the rate limits that apply to distributed apps.
 52. As a self-hoster, I want the app to run over Socket Mode, so that I do not need a public HTTPS endpoint to try it.
-53. As a self-hoster, I want a single configuration file naming my tokens, my Vault directory, and my connectors, so that everything I must supply is in one place.
+53. As a self-hoster, I want one instance configuration and one extensible `mcp.json`
+    naming my tokens, Vault, and connectors, so that MCP servers have one obvious place to
+    be added without mixing them into unrelated runtime settings.
 54. As a self-hoster, I want the instance to fail at startup with a clear message when a required credential is missing or invalid, so that I find out immediately rather than on the first mention.
 55. As a self-hoster, I want the instance to record and report the Codex version it is running against, so that when upstream breaks something I can see what changed.
 56. *(withdrawn — the project does not pin a Codex version in v1; see [Runtime configuration](#runtime-configuration).)*
 57. As a contributor, I want to add a connector by pointing the configuration at another MCP server, so that extending the coworker requires no code in this project.
-58. As a contributor, I want any new server's tools to go through the same inventory pin and deny-list, so that adding a connector cannot quietly widen the blast radius.
+58. As a contributor, I want a new server to inherit the fixed deny floor and support
+explicit `disabledTools` without freezing its full inventory, so that adding a connector is
+both safe for known exclusions and forgiving of future growth.
 59. As a self-hoster, I want the documented setup surprises — the org-approval trap, the scopes Slack demands versus offers — written down, so that I hit them with a fix in hand.
 60. As a self-hoster, I want the coworker's operating manual to be a file I can read and adjust, so that its persona and working style are mine to shape.
 
@@ -140,7 +149,7 @@ Two consequences constrain everything downstream and are not up for renegotiatio
 
 **Slack gateway.** Owns Bolt, Socket Mode, and the `app_mention` subscription. `app_mention` is the only entry point — slash commands are barred from threads and the Assistant surface is DM-only. Bolt auto-acks before the listener runs, which wins the three-second race for free. **`processBeforeResponse` must remain false**; setting it true causes four duplicate runs and is the reason a FaaS deployment is not viable. This module also owns dedupe: the Slack `event_id` is the Job's identity, and a repeated `event_id` is discarded.
 
-**Job runner.** Owns the Job lifecycle, the per-Thread queue, and the bounds. One Job at a time per Thread, with a mention arriving mid-Job held and delivered into the same Session at the next Turn boundary; Jobs in different Threads run concurrently. Receipt of a queued mention is acknowledged immediately. Hard-stop is available because the wrapper owns the subprocess. All three bounds — per-Turn wall-clock, max Turns per Job, cumulative token budget accumulated from turn-completion usage — are enforced here, because **Codex provides none of them** and reports usage only after the fact.
+**Job runner.** Owns the Job lifecycle, the per-Thread queue, and the bounds. One Job at a time per Thread, with a mention arriving mid-Job held and delivered into the same Session at the next Turn boundary; Jobs in different Threads run concurrently. Receipt of a queued mention is acknowledged immediately. Hard-stop is available because the wrapper owns the subprocess. Three optional bounds — per-Turn wall-clock, max Turns per Job, cumulative token budget accumulated from turn-completion usage — are enforced here when configured, because **Codex provides none of them** and reports usage only after the fact. All three are disabled by default.
 
 **Codex adapter.** The sole owner of `@openai/codex-sdk`, process lifecycle, event translation, and Session identity. ADR-0001 mandates this seam explicitly so that a future move to `app-server` is a bounded rewrite. No other module imports the SDK or knows what a Codex event looks like.
 
@@ -150,11 +159,15 @@ Two consequences constrain everything downstream and are not up for renegotiatio
 
 **Vault.** Owns Root note injection and its links-only enforcement, frontmatter conventions, and the Librarian pass. The Root note is injected by the wrapper into every Job — injection is a structural guarantee where "always read the root first" would be a behavioural one. At injection, **anything that is not a link line is dropped and the drop is surfaced** ([ADR-0004](../../docs/adr/0004-root-note-is-links-only.md)); this must not be relaxed to allow explanatory prose. A size ceiling on the Root warns rather than truncating, because Codex truncates silently at 32 KiB.
 
-**Preflight and configuration.** Validates credentials, records and reports the installed Codex version, probes each configured MCP server's tool inventory, compares against the pinned hash, **checks default-branch protection on every configured repository**, and generates Codex's own configuration including per-server disabled tools.
+**Preflight and configuration.** Validates credentials, records and reports the installed
+Codex version, connects to each configured MCP server and reports its current tool count,
+**checks default-branch protection on every configured repository**, and generates Codex's
+own configuration including per-server disabled tools.
 
 Two different severities, and the distinction is load-bearing:
 
-- **A tool-inventory mismatch is a hard startup failure**, naming the specific tools that appeared or disappeared. A connector growing a tool is a silent capability gain and must not be survivable.
+- **Tool inventory changes are allowed.** Connectivity or credential failures remain hard
+  startup failures; additions and removals do not.
 - **Missing branch protection is a warning, and the instance starts anyway.** It names the repository, the missing setting, and whether the condition is *fixable* (protection is available and off) or *unfixable on this plan* (`403 Upgrade to GitHub Pro`) — the remedies differ completely and one generic message serves neither.
 
 ### Runtime configuration
@@ -198,10 +211,14 @@ Cross-Thread context goes **through the Vault and only the Vault**. Sessions nev
 Three layers ([ADR-0002](../../docs/adr/0002-unattended-action-boundary.md)) — **but only two of them cover GitHub**, see the note below:
 
 1. **Policy** — the coworker may do anything a human can undo, but not merging, `merge_diff`, `submit_diff_review`, deleting files, or Linear's `delete_*` family.
-2. **Deny-list plus pinned inventory hash** — enforced as Codex's per-server disabled tools, with a hash of each server's tool list checked at startup. The deny-list is **hand-curated, not derived**: measured, Linear flags 18 of 57 tools destructive while GitHub flagged exactly one, leaving `merge_pull_request` and `push_files` unflagged. MCP annotations are not a portable safety primitive. A repo-managed **`pre-push` hook** sits inside this layer as defence-in-depth (below). **Linear only** — see the note.
+2. **Exact-name deny-list** — enforced as Codex's per-server disabled tools. A fixed
+   hand-curated floor covers known irreversible tools and configuration may add
+   connector-specific `disabledTools`; the rest of the live inventory is allowed to evolve.
+   MCP annotations are not a portable safety primitive. A repo-managed **`pre-push` hook**
+   sits inside this layer as defence-in-depth (below). **MCP only** — see the note.
 3. **Branch protection on the default branch** — because the agent has shell access and the token doubles as the git password, the irreversible actions are blocked *server-side* rather than at the credential: require a pull request before merging, require an approving review, and disallow bypassing including for administrators. **Where it can be enabled, this works** — verified, not assumed.
 
-> **Layer 2 does not cover GitHub** ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)). GitHub is reached by Skill over the `gh` CLI, not by MCP, so there is no tool surface to disable and no `tools/list` to pin. GitHub runs on layers 1 and 3, and since layer 3 is plan-gated and warn-only, **a free-plan self-hoster in private repositories has no structural boundary on GitHub at all.** The substitutes are a "do not merge" instruction in the Skill and a `gh` shim that records invocations — both weaker than a tool that does not exist. This is the most-weakened point in the design and is called out as such in [build/09](build/09-github-connector.md) and [build/10](build/10-branch-protection-verification.md).
+> **Layer 2 does not cover GitHub** ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)). GitHub is reached by Skill over the `gh` CLI, not by MCP, so there is no tool surface to disable. GitHub runs on layers 1 and 3, and since layer 3 is plan-gated and warn-only, **a free-plan self-hoster in private repositories has no structural boundary on GitHub at all.** The substitutes are a "do not merge" instruction in the Skill and a `gh` shim that records invocations — both weaker than a tool that does not exist. This is the most-weakened point in the design and is called out as such in [build/09](build/09-github-connector.md) and [build/10](build/10-branch-protection-verification.md).
 
 **GitHub authenticates as a GitHub App installation**, scoped to repositories the self-hoster selects in GitHub's own UI ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)). Installation tokens cannot be widened beyond the installation, so **repository selection is enforced at the credential** — the thing neither PAT type could express.
 
@@ -237,7 +254,13 @@ Installed by the wrapper on every checkout it creates, via `core.hooksPath`. It 
 
 There are **two routes to an outside system, and no plugin interface** for either.
 
-**MCP servers named in configuration** ([ADR-0005](../../docs/adr/0005-connectors-are-mcp-config.md)) — the route for Linear and for anything a self-hoster adds. Under `exec` the wrapper is not in the tool path; Codex reads MCP config and calls the servers directly, so any abstraction would mean shipping a proxy MCP server. Normalisation would also have to lie: only state *categories* map across GitHub and Linear, the org units form no lattice, and comments are flat versus threaded-and-polymorphic. Linear takes a plain bearer token — no OAuth, no callback, no refresh.
+**MCP servers named in `mcp.json`**
+([ADR-0005](../../docs/adr/0005-connectors-are-mcp-config.md)) — the route for Linear and
+for anything a self-hoster adds. The project-owned file supports Streamable HTTP and stdio;
+preflight consumes it through the official TypeScript client and translates the same
+validated entries into Codex configuration. Under `exec` the wrapper is not in the tool
+path; Codex calls the servers directly, so any normalising abstraction would still mean
+shipping a proxy MCP server.
 
 **Skills — a human-authored procedure plus the shell** ([ADR-0006](../../docs/adr/0006-github-is-a-skill-over-gh.md)) — the route for GitHub, and for anything where standing up an MCP server is not worth it. A Skill lives outside the sandbox's writable root, so the coworker follows it and cannot edit it.
 
@@ -262,7 +285,11 @@ A **Skill** is a human-written Markdown procedure the coworker can read and foll
 Two consequences the implementation must carry rather than quietly soften:
 
 - **A Skill names an environment variable; it never contains a credential.** The Vault is human-readable, opens in Obsidian, and will plausibly be committed to git.
-- **A resource reached by Skill is outside layer 2.** The deny-list and inventory pin cover the MCP tool path; a Skill drives the shell. The credential is the *whole* boundary, so it must genuinely be scoped — a read-only database role, not a read-write one nobody intends to write with. This is a stronger position than GitHub's, where `repo` scope could not be narrowed at all.
+- **A resource reached by Skill is outside layer 2.** The deny-list covers the MCP tool
+  path; a Skill drives the shell. The credential is the *whole* boundary, so it must
+  genuinely be scoped — a read-only database role, not a read-write one nobody intends to
+  write with. This is a stronger position than GitHub's, where `repo` scope could not be
+  narrowed at all.
 - **The coworker cannot improve its own Skills.** A Job that finds a procedure has drifted says so in the Thread and may write an ordinary Note about it; the fix is a human edit. `AGENTS.md` must tell it this, so the failure is a report rather than a silent no-op.
 
 ### File ingress

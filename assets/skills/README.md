@@ -40,8 +40,8 @@ and not a guarantee: it catches accidents, not determination.
 
 **A resource reached by Skill has no safety net except its credential.** This is the
 part worth reading twice. The coworker's other route to an outside system is an MCP
-server, and that route has a tool-level deny-list and a pinned inventory — a structural
-list of things it cannot do, checked at startup. A Skill drives the shell, and nothing
+server, and that route has an exact-name tool deny-list — a structural list of known
+things it cannot do. MCP inventories themselves may evolve. A Skill drives the shell, and nothing
 mediates the shell. There is no deny-list over `psql`. So for anything documented here,
 **the credential is the entire boundary**, and it has to be scoped as though the coworker
 will one day run the worst command the Skill makes possible, because it acts unattended

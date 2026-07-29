@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGitHubAppProbe } from "../../src/github/app.ts";
 import { ghCli } from "../../src/github/cli.ts";
-import { inventoryFingerprint } from "../../src/mcp/inventory.ts";
 import { createMcpInventoryProber } from "../../src/mcp/prober.ts";
 import { systemClock } from "../../src/ports/clock.ts";
 import type { McpServerConfig } from "../../src/ports/mcp.ts";
@@ -27,26 +26,27 @@ const privateKeyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH?.trim();
 describe.skipIf(!linearToken)("probing a real MCP server", () => {
   const linear: McpServerConfig = {
     name: "linear",
+    transport: "http",
+    enabled: true,
     url: "https://mcp.linear.app/mcp",
     bearerTokenEnvVar: "LINEAR_API_KEY",
+    httpHeaders: {},
+    envHttpHeaders: {},
     writeTools: [],
-    pinnedTools: [],
     disabledTools: [],
   };
 
   it("reads the tool inventory over streamable HTTP", async () => {
     const inventory = await createMcpInventoryProber(process.env).probe(linear);
 
-    // Measured at 57 on 2026-07-27. Asserted as a floor rather than an equality, because
-    // this test's job is "the transport works", and the inventory *changing* is what the pin
-    // in configuration exists to catch — with a review attached, which a test cannot do.
+    // Measured at 57 on 2026-07-27. Asserted as a floor rather than an equality because
+    // this test proves the transport works; inventory changes are deliberately accepted.
     expect(inventory.tools.length).toBeGreaterThan(20);
     expect(inventory.tools).toContain("list_issues");
     // The two the deny-list is generated to cover. If either name has gone, `mcp/denylist.ts`
     // is guarding something that no longer exists and needs re-deriving from the real surface.
     expect(inventory.tools).toContain("merge_diff");
     expect(inventory.tools).toContain("submit_diff_review");
-    expect(inventoryFingerprint(inventory.tools)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
   it("fails with the variable's name when the credential is wrong", async () => {

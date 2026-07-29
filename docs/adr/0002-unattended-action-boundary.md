@@ -4,20 +4,28 @@ status: accepted
 
 # The repository is the action boundary, not the tool policy
 
-The coworker acts unattended ([ADR-0001](0001-codex-cli-via-exec-and-sdk.md)) while reading untrusted input from Slack, GitHub, and Linear, so there is no human between a crafted issue comment and an action. We bound this in three layers: the coworker may do **anything a human can undo after the fact** but not the irreversible actions (`merge_pull_request`, `merge_diff`, `submit_diff_review`, `delete_file`, and Linear's `delete_*` family); that list is enforced as a **deny-list with a pinned hash of each MCP server's `tools/list`**, so a hosted server adding a tool causes a loud startup failure instead of a silent capability gain; and because the agent has shell access and the token doubles as the git password, the irreversible actions are made impossible **server-side by branch protection on the default branch** — the tool policy is defence-in-depth, not the boundary.
+The coworker acts unattended ([ADR-0001](0001-codex-cli-via-exec-and-sdk.md)) while reading untrusted input from Slack, GitHub, and Linear, so there is no human between a crafted issue comment and an action. We bound this in three layers: the coworker may do **anything a human can undo after the fact** but not the known irreversible actions (`merge_pull_request`, `merge_diff`, `submit_diff_review`, `delete_file`, and Linear's known delete tools); those exact tools are enforced as a **deny-list** for MCP servers; and because the agent has shell access and the token doubles as the git password, the irreversible actions are made impossible **server-side by branch protection on the default branch** — the tool policy is defence-in-depth, not the boundary.
 
 **Amended again by [ADR-0006](0006-github-is-a-skill-over-gh.md), and this one weakens the structure rather than moving it.** GitHub is no longer an MCP connector, so **layer 2 does not cover it**: there is no tool surface to deny-list and no `tools/list` to pin. GitHub runs on layer 1 and layer 3 alone — and since layer 3 is plan-gated and warns rather than refuses, a free-plan self-hoster in private repositories now has **no structural boundary on GitHub**. What is gained in exchange is at layer 3's own level: a GitHub App installation is scoped to **selected repositories**, so the blast radius narrows by repository even as it widens by tool. Read every mention of the GitHub deny-list below as historical.
 
-**Amended by implementation ([build/08](../../.scratch/slack-coworker/build/08-preflight.md)): the pin is the tool *list*, not a hash of it.** A hash satisfies "detect change" and defeats the thing that gives detection its value — the documented "review the diff, then re-pin" step. One changed digit is not something a human can review, and this ADR also requires that a mismatch name the specific tools that appeared or disappeared, which a digest cannot do. So configuration carries every tool name the server advertised when it was last reviewed; the hash is *derived* from that list, reported beside it at startup, and printed in the failure message so re-pinning costs a paste. This is also what [ADR-0005](0005-connectors-are-mcp-config.md) already asked for when it noted that the pin "doubles as this project's only record of what Linear offers". Read every "pinned hash" below as "pinned inventory, fingerprinted".
-
-**Also amended by implementation: the deny-list is generated from the pin rather than written into configuration.** The list above is hand-curated — in this project's code, not in each self-hoster's file — and computed per server from that server's pinned inventory. A configured entry naming a tool that does not exist (`disabled_tools = ["merge_dif"]`) is indistinguishable from a working configuration at startup and denies nothing, so the failure mode of hand-typing this list is a boundary that silently is not there. `delete_` is matched as a prefix so a server adding a fifth `delete_*` tool cannot hand it over by being renamed. Configuration may add to the floor; it cannot lower it.
+**Amended 2026-07-29: MCP tool inventories are deliberately not pinned.** An enabled
+connector is probed for connectivity and its current tool count is reported, but tools may
+appear or disappear without preventing startup. The previous pin made routine upstream
+evolution an availability failure and required operators to continually approve tool-list
+churn. Open-agent now keeps a small exact-name deny floor for known irreversible tools and
+lets each server add exact names through `disabledTools`. A newly introduced destructive
+verb is therefore not automatically blocked; that risk is accepted in favour of a forgiving,
+extensible connector system.
 
 **Amended.** The third layer was originally *credential scoping* — a fine-grained PAT granting pull-request write without merge. The project has since ruled out fine-grained PATs, and a classic PAT's `repo` scope is all-or-nothing: it cannot separate merge from pull-request write. The boundary therefore moves from the credential to the repository, which is where it remains enforceable with the token type in use.
 
 ## The layers as built
 
 1. **Policy** — anything undoable is permitted; the irreversible list above is not.
-2. **Deny-list plus pinned inventory hash** — per-MCP-server disabled tools, verified against a recorded hash of each server's `tools/list` at startup. **Linear only, as of [ADR-0006](0006-github-is-a-skill-over-gh.md)**; GitHub left the tool path and took its deny-list with it.
+2. **Exact-name deny-list** — known irreversible MCP tools plus per-server
+   `disabledTools`. There is no inventory pin and new tools are allowed automatically.
+   **MCP only, as of [ADR-0006](0006-github-is-a-skill-over-gh.md)**; GitHub left the
+   tool path and took its deny-list with it.
 3. **Branch protection on the default branch** — require a pull request before merging, require at least one approving review, and **disallow bypassing**, administrators included. Merge and force-push to the default branch then fail server-side for every actor, the coworker's token among them.
 
 ~~The granted GitHub scope is `repo`.~~ **Superseded by [ADR-0006](0006-github-is-a-skill-over-gh.md): a GitHub App installation replaces the classic PAT**, and the withheld scopes become permissions the App manifest simply does not declare — `administration`, `members`, `workflows`. Same intent, now visible in a reviewable file rather than in a checkbox ticked once. The paragraph below records the reasoning, which carries over unchanged.
@@ -42,11 +50,13 @@ The granted GitHub scope is `repo`. **`delete_repo`, `admin:org`, and `workflow`
 - **Force-push to feature branches remains reachable.** Those are the coworker's own branches; losing one costs a redo. Accepted.
 - **`delete_file` is not actually irreversible** and stays on the deny-list only as defence-in-depth — over git it is an ordinary commit, recoverable from history.
 - ~~**A classic PAT can use the Search API**, so the coworker keeps issue search. The security-versus-capability trade the project was carrying resolves in favour of capability, with the security recovered at the repository instead.~~ **The trade is dissolved rather than resolved** ([ADR-0006](0006-github-is-a-skill-over-gh.md)): `/search/issues` accepts **installation access tokens**, so the coworker keeps issue search *and* gets per-repository scoping — the two PAT types offered these only one at a time. Nothing is paid for search any more.
-- **MCP annotations are not a portable safety primitive.** Measured: Linear flags 18 of 57 tools destructive; GitHub flags exactly one (`delete_file`) and leaves `merge_pull_request` and `push_files` unflagged. Any deny-list must be hand-curated per server, which is why the inventory pin exists.
+- **MCP annotations are not a portable safety primitive.** Measured: Linear flags 18 of 57 tools destructive; GitHub flags exactly one (`delete_file`) and leaves `merge_pull_request` and `push_files` unflagged. The deny-list is therefore hand-curated.
 - **Linear has no equivalent third layer.** Its API key carries whatever the user can do, and there is no repository-shaped thing to protect, so the Linear half runs on layers 1 and 2 alone. That was equally true before this amendment, but it is now the weaker half and should be documented as such.
 - **Linear's `save_*` tools are upserts.** "May create but not modify" is not expressible at tool granularity — only at argument granularity — so that line is deliberately not drawn. GitHub splits create/update; Linear does not. Do not assume symmetry between connectors.
 - **Sandbox is `workspace-write` with network enabled**; `execpolicy` is unrestricted in v1. Per-command rules cost more tuning than they buy once the repository is the boundary.
-- **Pinning detects change, not danger.** A human still reads the diff and re-pins.
+- **Inventory evolution favours availability.** New tools become available without an
+  operator approval step. Add a tool to `disabledTools` when a connector-specific exclusion
+  is required.
 - **Residual risk is accepted, not eliminated.** Anything within the token's power on an unprotected surface is reachable by prompt injection. Non-destructive but embarrassing actions are fully available and recovery is manual.
 
 Decided in [ticket 12](../../.scratch/slack-coworker/issues/12-blast-radius.md); amended when fine-grained PATs were ruled out. Inventories measured in [ticket 05](../../.scratch/slack-coworker/issues/05-provision-accounts-and-tokens.md).

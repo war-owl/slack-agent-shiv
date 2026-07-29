@@ -167,11 +167,42 @@ function mcpServerConfig(
     mcp_servers: Object.fromEntries(
       servers.map((server) => [
         server.name,
-        {
-          url: server.url,
-          bearer_token_env_var: server.bearerTokenEnvVar,
-          disabled_tools: disabledToolsFor(server),
-        },
+        server.transport === "http"
+          ? {
+              url: server.url,
+              ...(server.bearerTokenEnvVar === undefined
+                ? {}
+                : { bearer_token_env_var: server.bearerTokenEnvVar }),
+              ...(Object.keys(server.httpHeaders).length === 0
+                ? {}
+                : { http_headers: server.httpHeaders }),
+              ...(Object.keys(server.envHttpHeaders).length === 0
+                ? {}
+                : { env_http_headers: server.envHttpHeaders }),
+              enabled: server.enabled,
+              disabled_tools: disabledToolsFor(server),
+              ...(server.startupTimeoutSec === undefined
+                ? {}
+                : { startup_timeout_sec: server.startupTimeoutSec }),
+              ...(server.toolTimeoutSec === undefined
+                ? {}
+                : { tool_timeout_sec: server.toolTimeoutSec }),
+            }
+          : {
+              command: server.command,
+              args: [...server.args],
+              ...(Object.keys(server.env).length === 0 ? {} : { env: server.env }),
+              ...(server.envVars.length === 0 ? {} : { env_vars: [...server.envVars] }),
+              ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+              enabled: server.enabled,
+              disabled_tools: disabledToolsFor(server),
+              ...(server.startupTimeoutSec === undefined
+                ? {}
+                : { startup_timeout_sec: server.startupTimeoutSec }),
+              ...(server.toolTimeoutSec === undefined
+                ? {}
+                : { tool_timeout_sec: server.toolTimeoutSec }),
+            },
       ]),
     ),
   };

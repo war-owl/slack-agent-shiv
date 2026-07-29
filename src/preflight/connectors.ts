@@ -1,27 +1,15 @@
 import type { Config } from "../config.ts";
 import { disabledToolsFor, unknownDisabledTools } from "../mcp/denylist.ts";
-import {
-  driftFailure,
-  hasDrifted,
-  inventoryDrift,
-  inventoryFingerprint,
-  unpinnedFailure,
-} from "../mcp/inventory.ts";
 import type { Logger } from "../ports/log.ts";
 import type { McpInventoryProber, McpServerConfig } from "../ports/mcp.ts";
 
 /**
  * The connector half of preflight: Linear, and anything a self-hoster adds.
  *
- * Three questions per server, and they are asked in this order because each is cheaper to
- * be wrong about than the next: is the credential there, does the tool surface match the
- * one a human reviewed, and which tools will Codex be told not to have.
- *
- * **A mismatch is fatal and a missing pin is fatal.** Everything else in preflight
- * describes an instance that will work; these two describe an instance whose action
- * boundary is not the one anybody agreed to. See `mcp/inventory.ts` for why detecting
- * change — rather than danger — is the achievable goal, and `mcp/denylist.ts` for what is
- * generated from the pin.
+ * Three questions per server: can its environment be resolved, can the server be reached,
+ * and which tools will Codex be told not to have. Tool inventories are observed rather
+ * than pinned: servers may add or remove tools without turning an otherwise healthy
+ * instance into an outage.
  */
 export async function checkConnectors(deps: {
   config: Config;
@@ -38,33 +26,35 @@ export async function checkConnectors(deps: {
   }
 
   for (const server of deps.config.mcpServers) {
+    if (!server.enabled) {
+      deps.log.info(`Connector ${server.name}: disabled in ${deps.config.mcpConfigSource}`);
+      continue;
+    }
     // First, because a probe with no credential fails as a transport error and reads like
     // the server being down. The name of the missing variable is the whole answer.
-    requireBearerToken(server, deps.env, deps.config.source);
+    requireEnvironment(server, deps.env, deps.config.mcpConfigSource);
+
+    if (server.transport === "stdio") {
+      deps.log.warn(
+        `Connector ${server.name} starts a local process: ${server.command} ${server.args.join(
+          " ",
+        )}. A stdio MCP server is executable software; pin its package version and review it.`,
+      );
+    }
 
     const inventory = await deps.inventoryProber.probe(server);
 
-    if (server.pinnedTools.length === 0) throw new Error(unpinnedFailure(server, inventory));
-
-    const drift = inventoryDrift(server.pinnedTools, inventory.tools);
-    if (hasDrifted(drift)) throw new Error(driftFailure(server, inventory, drift));
-
     deps.log.info(
-      `Connector ${server.name}: ${inventory.tools.length} tools, matching the pin ` +
-        `(${inventoryFingerprint(inventory.tools)})`,
+      `Connector ${server.name}: ${inventory.tools.length} tools available; inventory ` +
+        "changes are allowed.",
     );
 
     // Said out loud, every startup, because this is layer 2 and an operator should be able
-    // to see it rather than infer it from a document. An empty list is worth saying too:
-    // it means this server offers nothing the project considers irreversible, which is
-    // information about the server rather than an omission.
+    // to see it rather than infer it from a document.
     const disabled = disabledToolsFor(server);
     deps.log.info(
-      disabled.length === 0
-        ? `Connector ${server.name}: nothing disabled — it advertises no tool this project ` +
-            "refuses the coworker."
-        : `Connector ${server.name}: ${disabled.length} tool(s) disabled, so they do not ` +
-            `exist from the coworker's point of view: ${disabled.join(", ")}`,
+      `Connector ${server.name}: ${disabled.length} exact tool name(s) disabled: ` +
+        disabled.join(", "),
     );
 
     // A tool named as a Write that the server does not have is a typo, and its cost is
@@ -90,18 +80,25 @@ export async function checkConnectors(deps: {
   }
 }
 
-function requireBearerToken(
+function requireEnvironment(
   server: McpServerConfig,
   env: NodeJS.ProcessEnv,
   source: string,
 ): void {
-  const token = env[server.bearerTokenEnvVar]?.trim();
-  if (token === undefined || token === "") {
+  const variables =
+    server.transport === "http"
+      ? [
+          ...(server.bearerTokenEnvVar === undefined ? [] : [server.bearerTokenEnvVar]),
+          ...Object.values(server.envHttpHeaders),
+        ]
+      : server.envVars;
+  const missing = [...new Set(variables)].filter((variable) => !env[variable]?.trim());
+  if (missing.length > 0) {
     throw new Error(
-      `Connector "${server.name}" has no credential: ${source} says its bearer token is in ` +
-        `${server.bearerTokenEnvVar}, and ${server.bearerTokenEnvVar} is not set. Set it in ` +
-        ".env, or remove the connector — an instance that starts without it would fail on " +
-        "the first Job that needed the connector, in a Thread, unattended.",
+      `Connector "${server.name}" cannot resolve ${missing.join(", ")}: ${source} names ` +
+        `${missing.length === 1 ? "that environment variable" : "those environment variables"}, ` +
+        "but they are not set. Set them in .env, disable the connector, or remove it — an " +
+        "instance that starts without them would fail on the first unattended Job that needs it.",
     );
   }
 }

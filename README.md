@@ -23,7 +23,7 @@ reading one, which is measured and written down in
 (below), and follows procedures you write down for it.
 
 Startup now checks itself: credentials, versions, and — for any MCP connector you configure
-— that its tool list is still the one you reviewed, with the irreversible tools disabled.
+— that it can be reached, with the known irreversible tools disabled.
 A GitHub App is validated the same way. What is not built yet is the half that *uses* those:
 the GitHub Skill ([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and
 Linear ([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
@@ -40,20 +40,21 @@ You need Node 20+, [pnpm](https://pnpm.io), and a Codex login (`codex login`).
 pnpm install
 cp .env.example .env                                        # your Slack tokens
 cp open-agent.config.example.json open-agent.config.json    # optional, see below
+cp mcp.example.json mcp.json                                # optional MCP servers
 pnpm start
 ```
 
-Two files, split by what is secret. **`.env` holds credentials and nothing else.**
-`open-agent.config.json` is the configuration — the vault, the bounds, the model, the
-connectors, the GitHub App — and it *names* the environment variables each credential lives
-in rather than containing them, so it is safe to commit and paste into an issue. Everything
-in it is optional; with no file at all you get a Slack coworker with a vault and no
-connectors. See [docs/configuration.md](docs/configuration.md).
+**`.env` holds credentials and nothing else.** `open-agent.config.json` describes the
+instance — the Vault, bounds, model, GitHub App, and the path to `mcp.json`.
+`mcp.json` is the one extensible registry for every MCP server. It supports remote
+Streamable HTTP and local stdio servers and names environment variables rather than
+containing their secret values. With neither configuration file you get a Slack coworker
+with a Vault and no connectors. See [docs/configuration.md](docs/configuration.md).
 
 **Startup either runs or tells you exactly what is wrong.** A missing token, a `gh` that
-isn't installed, a connector whose tool list has changed since you reviewed it, a GitHub App
-that isn't installed where you think it is — each is found before the first mention, when
-somebody is watching, rather than three hours into a job in a thread.
+isn't installed, an unreachable connector, or a GitHub App that isn't installed where you
+think it is is found before the first mention. MCP servers may add or remove tools without
+blocking startup.
 
 The only thing the instance keeps for itself is `.state/sessions.json`: which Codex
 session each Slack thread resumes into. Conversations live on Codex's disk and notes
@@ -113,18 +114,15 @@ It is otherwise an ordinary note — open it and rewrite it.
 
 ## What stops a runaway job
 
-Codex has no limits of its own — no timeout, no cap on turns, no budget, no kill
-switch — so all three are this wrapper's, and they are the ones you get by doing
-nothing: **an hour on a single turn, eight turns per job, and a million tokens per
-job.** A job that hits one is killed and says in the thread which limit stopped it,
-how far it had got, and that whatever it had already done out in the world still
-stands. All three are configurable under `bounds`.
+By default, a job has **no per-Turn timeout, Turn cap, or token budget**. It runs until it
+finishes or someone stops it. Each limit is independently opt-in under `bounds`:
+`turnTimeoutMs`, `maxTurnsPerJob`, and `tokenBudgetPerJob`. A job that hits a configured
+limit is killed and says in the thread which limit stopped it, how far it had got, and
+that whatever it had already done out in the world still stands.
 
-Worth knowing before you leave the defaults alone: Codex reports what a turn cost only
-once the turn is over, and a whole job is normally one turn — so the token budget can
-refuse the *next* turn but cannot stop one that is already spending. **The hour is
-therefore the real ceiling on a single runaway turn.** Lower `bounds.turnTimeoutMs` if an
-hour of unattended spend is more than you want to risk; it costs long jobs, not safety.
+Codex reports token usage only after a Turn ends, so a configured token budget can refuse
+the next Turn but cannot interrupt one already spending. Configure `turnTimeoutMs` as well
+when a hard wall-clock ceiling is required.
 
 You can also stop a job yourself: **`@coworker stop`, and nothing else in the
 message.** A mention that says anything more is a correction, not a kill switch.

@@ -1,6 +1,10 @@
 # 05 — Bounds, hard-kill, and honest failure
 
-**What to build:** Everything that happens when a Job does not simply succeed. A runaway Job stops on its own before it costs a weekend or a bill. A person can stop one deliberately. A Job that dies says what it got done, what it did not, and — plainly — that some of its side effects may already have landed. And when the coworker picks the Thread back up, it is told it was interrupted, so it checks before pushing a branch that already exists.
+> Amended 2026-07-30: `turnTimeoutMs`, `maxTurnsPerJob`, and
+> `tokenBudgetPerJob` remain available but are disabled by default. An omitted limit
+> no longer stops a Job.
+
+**What to build:** Everything that happens when a Job does not simply succeed. A person can stop one deliberately, and an operator can opt into automatic limits. A Job that dies says what it got done, what it did not, and — plainly — that some of its side effects may already have landed. And when the coworker picks the Thread back up, it is told it was interrupted, so it checks before pushing a branch that already exists.
 
 Codex supplies none of this: it reports usage after the fact and offers no ceiling, no max-Turns, and no kill switch. Every bound here is the wrapper's.
 
@@ -8,10 +12,10 @@ Codex supplies none of this: it reports usage after the fact and offers no ceili
 
 **Status:** ready-for-agent
 
-- [x] A per-Turn wall-clock timeout hard-kills the subprocess when it expires
-- [x] A maximum number of Turns per Job is enforced
-- [x] A cumulative token budget per Job is accumulated from turn-completion usage and enforced
-- [x] All three bounds are configurable, with defaults conservative enough that a runaway Job is an annoyance rather than a bill
+- [x] A configured per-Turn wall-clock timeout hard-kills the subprocess when it expires
+- [x] A configured maximum number of Turns per Job is enforced
+- [x] A configured cumulative token budget per Job is accumulated from turn-completion usage and enforced
+- [x] All three per-Job bounds are independently configurable and disabled by default
 - [x] Hitting a bound posts a message that clearly says the Job was **stopped**, names which bound stopped it, and cannot be mistaken for a completed result
 - [x] A person can hard-stop a running Job from the Thread, and the subprocess actually dies
 - [x] A Job that dies for any reason posts what completed, what did not, and that side effects may have partially landed

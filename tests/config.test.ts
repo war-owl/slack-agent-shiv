@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
@@ -11,7 +11,7 @@ import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../src/vault/skills.ts";
 import { testTempDir } from "./support/test-root.ts";
 
 /**
- * Configuration: **one file, and secrets in the environment.**
+ * Instance configuration, one MCP registry, and secrets in the environment.
  *
  * The property under test throughout is that the two never swap places. The file names
  * credentials and never contains them, so it is safe to commit; the environment holds them
@@ -36,6 +36,12 @@ async function configFile(
     "utf8",
   );
   return { dir, filePath };
+}
+
+async function writeMcp(dir: string, contents: unknown): Promise<string> {
+  const filePath = path.join(dir, "mcp.json");
+  await writeFile(filePath, JSON.stringify(contents, undefined, 2), "utf8");
+  return filePath;
 }
 
 /** The two credentials every instance needs, under the names the defaults expect. */
@@ -94,13 +100,14 @@ describe("the configuration file", () => {
     expect(config.skillsDir).toBe(path.join(dir, "brain", SKILLS_DIRNAME));
   });
 
-  it("takes the bounds a self-hoster wrote and defaults the rest", async () => {
+  it("takes a per-Job bound a self-hoster wrote and leaves the rest disabled", async () => {
     const { filePath } = await configFile({ bounds: { turnTimeoutMs: 90_000 } });
 
     const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
 
     expect(config.bounds.turnTimeoutMs).toBe(90_000);
-    expect(config.bounds.maxTurnsPerJob).toBe(BOUND_DEFAULTS.maxTurnsPerJob);
+    expect(config.bounds.maxTurnsPerJob).toBeUndefined();
+    expect(config.bounds.tokenBudgetPerJob).toBeUndefined();
   });
 
   it("refuses a key it does not recognise, naming it", async () => {
@@ -130,24 +137,27 @@ describe("the configuration file", () => {
   it("parses the example this project ships", async () => {
     // The example is documentation that runs, and a shipped example that does not validate
     // is worse than none: it is the first thing a self-hoster copies.
-    const example = path.resolve(import.meta.dirname, "..", "open-agent.config.example.json");
-    const dir = await testTempDir("open-agent-config-");
-    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    const repo = path.resolve(import.meta.dirname, "..");
+    const example = JSON.parse(
+      await readFile(path.join(repo, "open-agent.config.example.json"), "utf8"),
+    ) as ConfigFile;
+    const mcpExample = JSON.parse(
+      await readFile(path.join(repo, "mcp.example.json"), "utf8"),
+    ) as unknown;
+    const { dir, filePath } = await configFile(example);
+    await writeMcp(dir, mcpExample);
     const keyPath = path.join(dir, "app.pem");
     await writeFile(keyPath, "-----BEGIN RSA PRIVATE KEY-----\nnot-real\n-----END…\n", "utf8");
 
     const config = await loadConfig({
       ...SLACK_TOKENS,
-      CONFIG_PATH: example,
+      CONFIG_PATH: filePath,
       GITHUB_APP_ID: "1234567",
       GITHUB_APP_PRIVATE_KEY_PATH: keyPath,
       LINEAR_API_KEY: "lin_api_test",
     });
 
-    // And its Linear pin is the real measured inventory, so a self-hoster who copies it
-    // either matches what Linear serves today or is told, loudly, that it has changed.
-    expect(config.mcpServers[0]?.pinnedTools).toHaveLength(57);
-    expect(config.mcpServers[0]?.pinnedTools).toContain("merge_diff");
+    expect(config.mcpServers[0]?.name).toBe("linear");
   });
 
   it("says which file was not valid JSON", async () => {
@@ -242,39 +252,42 @@ describe("credentials, which the file names and never holds", () => {
 });
 
 describe("connectors, which the file is the only record of", () => {
-  it("carries the pin, the write tools, and the token's variable name", async () => {
-    const { filePath } = await configFile({
-      connectors: [
-        {
-          name: "linear",
+  it("carries the write tools and the token's variable name", async () => {
+    const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
+    await writeMcp(dir, {
+      mcpServers: {
+        linear: {
+          type: "streamable-http",
           url: "https://mcp.linear.app/mcp",
           bearerTokenEnvVar: "LINEAR_API_KEY",
           writeTools: ["save_issue"],
-          pinnedTools: ["save_issue", "list_issues", "merge_diff"],
         },
-      ],
+      },
     });
 
     const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
 
     const [linear] = config.mcpServers;
-    expect(linear?.bearerTokenEnvVar).toBe("LINEAR_API_KEY");
-    expect(linear?.pinnedTools).toContain("merge_diff");
+    expect(linear?.transport).toBe("http");
+    expect(linear?.transport === "http" ? linear.bearerTokenEnvVar : undefined).toBe(
+      "LINEAR_API_KEY",
+    );
     // Nothing resolved the token here. The wrapper is not in the tool path (ADR-0005) —
     // Codex reads the variable itself, so the credential never enters this process.
     expect(JSON.stringify(config)).not.toContain("lin_api");
   });
 
   it("insists a connector says which of its tools write", async () => {
-    const { filePath } = await configFile({
-      connectors: [
-        {
-          name: "linear",
+    const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
+    await writeMcp(dir, {
+      mcpServers: {
+        linear: {
+          type: "streamable-http",
           url: "https://mcp.linear.app/mcp",
           bearerTokenEnvVar: "LINEAR_API_KEY",
         },
-      ],
-    } as ConfigFile);
+      },
+    });
 
     // An absent list means every Write through this connector leaves no trace, which is not
     // a thing to fall into by omission.
@@ -282,6 +295,56 @@ describe("connectors, which the file is the only record of", () => {
       (error: unknown) => error,
     );
 
-    expect(String(failure)).toContain("connectors.0.writeTools");
+    expect(String(failure)).toContain("mcpServers.linear");
+    expect(String(failure)).toContain("writeTools");
+  });
+
+  it("loads stdio servers and resolves their working directory beside mcp.json", async () => {
+    const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
+    await writeMcp(dir, {
+      mcpServers: {
+        local: {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "@vendor/server@1.2.3"],
+          cwd: "./tools",
+          envVars: ["LOCAL_TOKEN"],
+          writeTools: [],
+        },
+      },
+    });
+
+    const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
+    const [local] = config.mcpServers;
+
+    expect(local?.transport).toBe("stdio");
+    expect(local?.transport === "stdio" ? local.cwd : undefined).toBe(path.join(dir, "tools"));
+    expect(local?.transport === "stdio" ? local.envVars : []).toEqual(["LOCAL_TOKEN"]);
+  });
+
+  it("refuses static headers owned by the MCP transport", async () => {
+    const { dir, filePath } = await configFile({ mcpConfig: "./mcp.json" });
+    await writeMcp(dir, {
+      mcpServers: {
+        unsafe: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          httpHeaders: { Authorization: "Bearer plaintext-secret" },
+          writeTools: [],
+        },
+      },
+    });
+
+    await expect(loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath })).rejects.toThrow(
+      /bearerTokenEnvVar/,
+    );
+  });
+
+  it("fails when an explicitly named MCP registry is missing", async () => {
+    const { filePath } = await configFile({ mcpConfig: "./missing-mcp.json" });
+
+    await expect(loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath })).rejects.toThrow(
+      /missing-mcp\.json cannot be read/,
+    );
   });
 });

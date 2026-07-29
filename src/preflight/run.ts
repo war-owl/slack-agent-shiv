@@ -52,6 +52,7 @@ export async function runPreflight(deps: {
   env: NodeJS.ProcessEnv;
 }): Promise<void> {
   deps.log.info(`Configuration: ${deps.config.source}`);
+  deps.log.info(`MCP configuration: ${deps.config.mcpConfigSource}`);
 
   await checkEngine(deps);
   reportBounds(deps);
@@ -94,16 +95,23 @@ async function checkEngine(deps: { engine: Engine; log: Logger }): Promise<void>
   );
 }
 
-/**
- * Reported because they are the wrapper's alone — the engine has no ceiling of its own —
- * and because a self-hoster who has lowered one wants to see that it took.
- */
+/** Report configured per-Job limits, including the ordinary no-limits default. */
 function reportBounds(deps: { config: Config; log: Logger }): void {
   const bounds = deps.config.bounds;
+  const configured = [
+    bounds.turnTimeoutMs === undefined
+      ? "no per-Turn timeout"
+      : `${Math.round(bounds.turnTimeoutMs / 1000)}s per Turn`,
+    bounds.maxTurnsPerJob === undefined
+      ? "no Turn cap"
+      : `${bounds.maxTurnsPerJob} Turns per Job`,
+    bounds.tokenBudgetPerJob === undefined
+      ? "no token budget"
+      : `${bounds.tokenBudgetPerJob} tokens per Job`,
+  ];
   deps.log.info(
-    `Bounds: ${Math.round(bounds.turnTimeoutMs / 1000)}s per Turn, ` +
-      `${bounds.maxTurnsPerJob} Turns per Job, ` +
-      `${bounds.tokenBudgetPerJob} tokens per Job. A Job that hits one is stopped.`,
+    `Job bounds: ${configured.join(", ")}. ` +
+      "A Job is stopped only when it hits a configured limit or a person asks it to stop.",
   );
 }
 

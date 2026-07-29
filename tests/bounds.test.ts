@@ -1,7 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BOUND_DEFAULTS } from "../src/config.ts";
 import type { EngineEvent } from "../src/ports/engine.ts";
 import { deferred } from "./support/fakes.ts";
 import { BOT_USER_ID, coworkerHarness, DEFAULT_THREAD_TS } from "./support/harness.ts";
@@ -25,24 +24,23 @@ const reportIn = (h: Awaited<ReturnType<typeof coworkerHarness>>, threadTs: stri
   h.slack.textsIn(threadTs).at(-1) ?? "";
 
 describe("the wall clock on a Turn", () => {
-  it("kills a Turn that outlives it, and says so instead of waiting", async () => {
+  it("has no timeout by default", async () => {
     const h = await coworkerHarness();
     h.engine.script = neverFinishes;
 
     const delivery = await h.startMention();
     await h.engine.started();
-    // The shipped default, not a number invented for the test: what is under test is
-    // the bound a self-hoster actually gets by doing nothing.
-    await h.clock.advance(BOUND_DEFAULTS.turnTimeoutMs + 1);
+    // Past the old one-hour default: omission now means unlimited.
+    await h.clock.advance(3_600_001);
+    expect(h.engine.ranTurns[0]?.aborted).toBe(false);
+
+    await h.mention({ text: `<@${BOT_USER_ID}> stop`, user: "U_IMPATIENT" });
     if (delivery.accepted) await delivery.completed;
 
     expect(h.engine.ranTurns[0]?.aborted).toBe(true);
-    const report = reportIn(h, DEFAULT_THREAD_TS);
-    expect(report).toContain("Stopped");
-    expect(report).toContain("60 minutes");
   });
 
-  it("is configurable, so an instance can be stricter than the default", async () => {
+  it("can be enabled explicitly", async () => {
     const h = await coworkerHarness({ bounds: { turnTimeoutMs: 30_000 } });
     h.engine.script = neverFinishes;
 
@@ -84,6 +82,22 @@ describe("the wall clock on a Turn", () => {
 });
 
 describe("the cap on Turns", () => {
+  it("has no Turn cap by default", async () => {
+    const h = await coworkerHarness();
+    h.engine.script = () => [
+      ...Array.from({ length: 9 }, () => [
+        { type: "turn-completed", usage: undefined } as const,
+        { type: "turn-started" } as const,
+      ]).flat(),
+      { type: "message", text: "Ten Turns completed." } as const,
+    ];
+
+    await h.mention();
+
+    expect(h.engine.ranTurns[0]?.aborted).toBe(false);
+    expect(reportIn(h, DEFAULT_THREAD_TS)).toBe("Ten Turns completed.");
+  });
+
   it("stops a Job that keeps starting new Turns", async () => {
     const h = await coworkerHarness({ bounds: { maxTurnsPerJob: 3 } });
     // The engine opens with a Turn of its own, so this scripts the three after it.
@@ -129,6 +143,19 @@ describe("the token budget", () => {
       outputTokens: output,
       reasoningOutputTokens: 0,
     }) as const;
+
+  it("has no token budget by default", async () => {
+    const h = await coworkerHarness();
+    h.engine.script = () => [
+      { type: "turn-completed", usage: usage(1_000_000, 250_000) },
+      { type: "message", text: "No default token stop." },
+    ];
+
+    await h.mention();
+
+    expect(h.engine.ranTurns[0]?.aborted).toBe(false);
+    expect(reportIn(h, DEFAULT_THREAD_TS)).toBe("No default token stop.");
+  });
 
   it("accumulates across Turns and stops the Job when the budget is gone", async () => {
     const h = await coworkerHarness({ bounds: { tokenBudgetPerJob: 1_000 } });

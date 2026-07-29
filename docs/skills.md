@@ -95,12 +95,11 @@ See [ADR-0004](adr/0004-root-note-is-links-only.md).
 This is the cost of the Skill route and it is not mitigated anywhere else.
 
 The action boundary ([ADR-0002](adr/0002-unattended-action-boundary.md)) has three layers.
-Layer 2 is the tool policy: a hand-curated deny-list over each MCP server's tools, plus a
-pinned hash of its inventory so a server that grows a tool fails loudly instead of
-silently granting capability. It is structural — the tool is not there to call.
+Layer 2 is the tool policy: a hand-curated exact-name deny-list over each MCP server's
+tools. Inventories are allowed to evolve; known blocked tools are structurally unavailable.
 
 **Layer 2 operates on the MCP tool path. A Skill drives the shell.** There is no
-deny-list over `psql`, no inventory to pin, and nothing between the coworker and any
+deny-list over `psql` and nothing between the coworker and any
 command the Skill makes possible. So for anything reached this way:
 
 > **The credential is the entire boundary.**

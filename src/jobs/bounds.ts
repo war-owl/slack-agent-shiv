@@ -8,11 +8,10 @@ import type { EngineEvent } from "../ports/engine.ts";
  * **Every bound here is the wrapper's.** Codex offers no ceiling of any kind: no
  * timeout, no maximum number of Turns, no budget, and no kill switch. It reports what
  * a Turn cost only once the Turn is over. So this module is not a convenience layer
- * over the engine's own limits — it is the only thing between a wedged or looping Job
- * and however long the self-hoster takes to notice.
+ * over the engine's own limits. These limits are opt-in; without them, manual stop is
+ * the only wrapper mechanism that interrupts a wedged or looping Job.
  *
- * The three bounds catch three different failures and none of them substitutes for
- * another:
+ * The three optional bounds catch different failures:
  *
  * - **Wall clock** catches the Job that is *stuck*. A hung subprocess spends nothing
  *   and would otherwise sit there until someone looks.
@@ -23,13 +22,11 @@ import type { EngineEvent } from "../ports/engine.ts";
  *   completion and nowhere else, so a single Turn can overrun the budget entirely
  *   before anything can be counted. **What it prevents is the next Turn** — which
  *   means that for the one-Turn Job `exec` normally produces, the wall clock is the
- *   only thing standing between a runaway and the bill. That is a real gap and not a
- *   fixable one from here; it is why the wall clock's default is chosen with spend in
- *   mind and not only with wedges.
+ *   only configured limit that can interrupt a Turn already in progress.
  *
- * All three land on the same primitive: abort the signal the engine's run was given,
- * which kills the subprocess. A Job that has been stopped and is still spending money
- * has not been stopped.
+ * When configured, all three land on the same primitive: abort the signal the engine's
+ * run was given, which kills the subprocess. A Job that has been stopped and is still
+ * spending money has not been stopped.
  *
  * The configured `bounds` carry two more numbers that nothing here reads, and neither is a
  * bound on one Job's work. `maxConcurrentJobs` bounds the *instance* — it decides whether a
@@ -110,8 +107,13 @@ export function boundJob(deps: { bounds: Bounds; clock: Clock }): JobBounds {
    */
   const armTurnClock = (): void => {
     turnDeadline?.stop();
-    turnDeadline = clock.after(bounds.turnTimeoutMs, () => {
-      trip({ kind: "turn-timeout", limitMs: bounds.turnTimeoutMs });
+    if (bounds.turnTimeoutMs === undefined) {
+      turnDeadline = undefined;
+      return;
+    }
+    const limitMs = bounds.turnTimeoutMs;
+    turnDeadline = clock.after(limitMs, () => {
+      trip({ kind: "turn-timeout", limitMs });
     });
   };
 
@@ -128,7 +130,7 @@ export function boundJob(deps: { bounds: Bounds; clock: Clock }): JobBounds {
           // Counted from the engine's own event rather than from the wrapper's calls.
           // The engine decides what a Turn is — it is the unit of durability, not a
           // unit this side chose — so the honest count is the one it announces.
-          if (turns > bounds.maxTurnsPerJob) {
+          if (bounds.maxTurnsPerJob !== undefined && turns > bounds.maxTurnsPerJob) {
             trip({ kind: "max-turns", limit: bounds.maxTurnsPerJob });
             return;
           }
@@ -136,12 +138,14 @@ export function boundJob(deps: { bounds: Bounds; clock: Clock }): JobBounds {
           break;
         case "turn-completed":
           if (event.usage) {
-            // Exactly as reported, cache included. See BOUND_DEFAULTS: this is a
-            // ceiling on volume, and the instance cannot price the model it was
-            // pointed at, so it does not pretend to.
+            // Exactly as reported, cache included. A configured budget is a ceiling on
+            // volume; the instance cannot price the model, so it does not pretend to.
             tokensSpent += event.usage.inputTokens + event.usage.outputTokens;
           }
-          if (tokensSpent >= bounds.tokenBudgetPerJob) {
+          if (
+            bounds.tokenBudgetPerJob !== undefined &&
+            tokensSpent >= bounds.tokenBudgetPerJob
+          ) {
             trip({
               kind: "token-budget",
               spent: tokensSpent,

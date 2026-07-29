@@ -57,8 +57,8 @@ knowing about before build/03:
   translation would silently drop events and make every later ticket edit the adapter;
   ADR-0001 asks for the opposite.
 - **`mcpServers` is in the configuration schema but nothing populates it** — build/08
-  owns the config file and the inventory pin. The prober is injected and consulted at
-  startup so that criterion is real rather than promised, and the shipped prober throws
+  owns connector configuration and startup probing. The prober is injected and consulted
+  at startup so that criterion is real rather than promised, and the shipped prober throws
   rather than returning an empty inventory.
 
 **Verified end to end 2026-07-28**, on build/02: a human @-mentioned the bot in a real

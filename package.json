@@ -15,6 +15,7 @@
     "test:contract": "vitest run --config vitest.contract.config.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@openai/codex": "0.145.0",
     "@openai/codex-sdk": "0.145.0",
     "@slack/bolt": "^5.0.0",

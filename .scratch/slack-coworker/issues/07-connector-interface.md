@@ -4,6 +4,10 @@ Type: grilling
 Status: resolved
 Blocked by: 11
 
+> Superseded 2026-07-29: the inventory-pin parts of this resolved design discussion no
+> longer describe the implementation. MCP servers are added through `mcp.json`, their
+> inventories may evolve, and preflight reports the live tool count.
+
 ## Question
 
 "Connect it to various apps" is a headline promise, and for an open-source project it is also the extension point other people will build against. Decide its shape — this is a deep-module question, so run it with `/codebase-design` vocabulary.

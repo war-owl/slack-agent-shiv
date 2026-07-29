@@ -1,0 +1,38 @@
+{
+  "$schema": "./mcp.schema.json",
+  "mcpServers": {
+    "linear": {
+      "type": "streamable-http",
+      "url": "https://mcp.linear.app/mcp",
+      "bearerTokenEnvVar": "LINEAR_API_KEY",
+      "writeTools": [
+        "create_attachment",
+        "create_attachment_from_upload",
+        "create_initiative_label",
+        "create_issue_label",
+        "prepare_attachment_upload",
+        "resolve_diff_thread",
+        "save_comment",
+        "save_diff_comment",
+        "save_document",
+        "save_initiative",
+        "save_issue",
+        "save_milestone",
+        "save_project",
+        "save_release",
+        "save_release_note",
+        "save_status_update"
+      ],
+      "disabledTools": []
+    },
+    "example-local-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@vendor/example-mcp-server@1.2.3"],
+      "envVars": ["EXAMPLE_API_KEY"],
+      "writeTools": [],
+      "disabledTools": [],
+      "enabled": false
+    }
+  }
+}

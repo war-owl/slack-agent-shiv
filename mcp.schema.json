@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-agent.local/mcp.schema.json",
+  "title": "open-agent MCP configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mcpServers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "mcpServers": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/server" }
+    }
+  },
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "writeTools": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "disabledTools": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
+        "startupTimeoutSec": { "type": "number", "exclusiveMinimum": 0 },
+        "toolTimeoutSec": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "required": ["writeTools"]
+    },
+    "server": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "url", "writeTools"],
+          "properties": {
+            "type": { "const": "streamable-http" },
+            "url": { "type": "string", "format": "uri" },
+            "bearerTokenEnvVar": { "type": "string", "minLength": 1 },
+            "httpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+            "envHttpHeaders": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "default": {} },
+            "enabled": { "$ref": "#/$defs/policy/properties/enabled" },
+            "writeTools": { "$ref": "#/$defs/policy/properties/writeTools" },
+            "disabledTools": { "$ref": "#/$defs/policy/properties/disabledTools" },
+            "startupTimeoutSec": { "$ref": "#/$defs/policy/properties/startupTimeoutSec" },
+            "toolTimeoutSec": { "$ref": "#/$defs/policy/properties/toolTimeoutSec" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "command", "writeTools"],
+          "properties": {
+            "type": { "const": "stdio" },
+            "command": { "type": "string", "minLength": 1 },
+            "args": { "type": "array", "items": { "type": "string" }, "default": [] },
+            "cwd": { "type": "string", "minLength": 1 },
+            "env": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+            "envVars": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
+            "enabled": { "$ref": "#/$defs/policy/properties/enabled" },
+            "writeTools": { "$ref": "#/$defs/policy/properties/writeTools" },
+            "disabledTools": { "$ref": "#/$defs/policy/properties/disabledTools" },
+            "startupTimeoutSec": { "$ref": "#/$defs/policy/properties/startupTimeoutSec" },
+            "toolTimeoutSec": { "$ref": "#/$defs/policy/properties/toolTimeoutSec" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -2,13 +2,14 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { z } from "zod";
+import { DEFAULT_MCP_CONFIG_FILENAME, loadMcpConfig } from "./mcp/config.ts";
 import type { McpServerConfig } from "./ports/mcp.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "./vault/skills.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Configuration: one file, and secrets in the environment.
+ * Instance configuration, one MCP registry, and secrets in the environment.
  *
  * **The file holds no credentials — it holds their names.** A connector says which
  * environment variable carries its bearer token, exactly as a Skill does (CONTEXT.md:
@@ -19,8 +20,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
  *
  * **The environment configures nothing else.** Two sources for one setting is how an
  * instance ends up running with bounds nobody wrote down, so the paths, the bounds, the
- * model, and the connectors come from the file and only the file. The single exception is
- * `CONFIG_PATH`, which says where the file is and cannot itself live in it.
+ * model, and the MCP registry path come from the instance file. MCP servers come only from
+ * that registry. The single exception is `CONFIG_PATH`, which says where the instance file
+ * is and cannot itself live in it.
  *
  * Relative paths in the file resolve against the file's own directory, so a checkout that
  * moves stays configured.
@@ -60,55 +62,13 @@ export const OPERATING_MANUAL_MAX_BYTES = 32 * 1024;
 /** Where the configuration file lives unless `CONFIG_PATH` says otherwise. */
 export const DEFAULT_CONFIG_FILENAME = "open-agent.config.json";
 
-/**
- * The bounds, and why these numbers.
- *
- * Codex supplies none of this — it reports usage after the fact and offers no
- * ceiling, no max-Turns and no kill switch — so every one of these is the wrapper's,
- * and the default is what almost every self-hoster will actually run with. The brief
- * is that a runaway Job is an annoyance rather than a bill, without making
- * "delegate and walk away" into a three-minute timeout.
- */
+/** Operational defaults that remain enabled without explicit configuration. */
 export const BOUND_DEFAULTS = {
-  /**
-   * An hour on one Turn.
-   *
-   * Under `exec` a Job is normally **one** Turn, so this is in practice the ceiling
-   * on a whole Job — and the product promise is work that takes "minutes or hours".
-   * Ten minutes would be a wedge detector that also killed real work.
-   *
-   * **Which makes this the only bound on a single runaway Turn, and an hour of one is
-   * not nothing.** Usage arrives at turn completion and nowhere else, so the budget
-   * below cannot stop a Turn that is already spending — it can only refuse the next
-   * one. If an hour of unattended spend is not acceptable, this is the number to
-   * lower, and lowering it costs long Jobs rather than safety.
-   */
-  turnTimeoutMs: 60 * 60 * 1000,
-  /**
-   * Eight Turns.
-   *
-   * A Job is one Turn today, and gains a second when the Librarian pass arrives. The
-   * cap is not tuned to that: it exists so that a Job which has started looping has
-   * somewhere to stop, and eight is far enough above any legitimate shape that
-   * hitting it is information.
-   */
-  maxTurnsPerJob: 8,
-  /**
-   * A million tokens across the Job.
-   *
-   * Counted exactly as the engine reports them, cached input included. That
-   * over-counts against price — cached input is roughly a tenth the cost — and it is
-   * deliberately the safe direction for a bound to be wrong in. This is a ceiling on
-   * volume, not a budget in currency, and the instance cannot compute the latter: it
-   * does not know the price of the model it was pointed at.
-   */
-  tokenBudgetPerJob: 1_000_000,
   /**
    * Four Jobs at once, across the whole instance.
    *
-   * The other three bounds are each a bound on *one* Job; this is the one that answers
-   * for the instance, because ten Threads mentioning the coworker at the same time is
-   * otherwise ten subprocesses and ten of every budget above.
+   * This answers for the instance, because ten Threads mentioning the coworker at the
+   * same time is otherwise ten subprocesses.
    *
    * Four rather than a round ten because Slack sets the ceiling before the machine
    * does. A Job's status message can be rewritten up to twelve times a minute
@@ -140,12 +100,12 @@ export const BOUND_DEFAULTS = {
 } as const;
 
 const boundsSchema = z.object({
-  /** Wall clock on a single Turn. Expiring hard-kills the engine's process. */
-  turnTimeoutMs: z.number().int().positive(),
-  /** How many Turns one Job may run before it is stopped. */
-  maxTurnsPerJob: z.number().int().positive(),
-  /** Cumulative tokens across the Job, accumulated from turn-completion usage. */
-  tokenBudgetPerJob: z.number().int().positive(),
+  /** Optional wall clock on a single Turn. Expiring hard-kills the engine's process. */
+  turnTimeoutMs: z.number().int().positive().optional(),
+  /** Optional number of Turns one Job may run before it is stopped. */
+  maxTurnsPerJob: z.number().int().positive().optional(),
+  /** Optional cumulative tokens, accumulated from turn-completion usage. */
+  tokenBudgetPerJob: z.number().int().positive().optional(),
   /** How many Jobs may run at once across every Thread. The one instance-wide bound. */
   maxConcurrentJobs: z.number().int().positive(),
   /** Wall clock on the Librarian's closing pass. Expiring abandons it, silently to Slack. */
@@ -235,15 +195,14 @@ export interface Config {
     /** Left unset, the `codex` on `PATH` is used, falling back to the vendored one. */
     codexPath?: string | undefined;
   };
-  /**
-   * What stops a Job that does not stop by itself, and how many may run at once. See
-   * {@link BOUND_DEFAULTS}.
-   */
+  /** Optional per-Job limits plus shared-service operational bounds. */
   bounds: Bounds;
   /** The GitHub App, or nothing. See {@link GitHubAppConfig}. */
   github?: GitHubAppConfig | undefined;
   /** Connectors, as MCP server configuration (ADR-0005). */
   mcpServers: readonly McpServerConfig[];
+  /** The one registry those connectors came from. */
+  mcpConfigSource: string;
 }
 
 /**
@@ -253,27 +212,6 @@ export interface Config {
  * that parsed and did nothing would be an instance running with a bound its operator
  * believes they set. Every unknown key is named and refused.
  */
-const connectorSchema = z
-  .object({
-    name: z.string().min(1),
-    url: z.string().url(),
-    bearerTokenEnvVar: z.string().min(1),
-    /**
-     * The tools on this server that act on the world. See `McpServerConfig`.
-     *
-     * Required rather than defaulted to empty. An absent list means every Write
-     * through this connector leaves no trace, which is not a thing to fall into by
-     * omission — naming them (or naming none, deliberately) is part of configuring a
-     * connector, like pinning its inventory.
-     */
-    writeTools: z.array(z.string().min(1)),
-    /** The reviewed inventory. Preflight refuses to start without one. */
-    pinnedTools: z.array(z.string().min(1)).default([]),
-    /** Extra tools to disable, on top of the ones the wrapper denies anyway. */
-    disabledTools: z.array(z.string().min(1)).default([]),
-  })
-  .strict();
-
 const configFileSchema = z
   .object({
     slack: z
@@ -319,7 +257,8 @@ const configFileSchema = z
       })
       .strict()
       .optional(),
-    connectors: z.array(connectorSchema).default([]),
+    /** The single registry for every MCP server. Defaults to `mcp.json` beside this file. */
+    mcpConfig: z.string().min(1).optional(),
   })
   .strict();
 
@@ -354,6 +293,13 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   // `notes` rather than `vault`, because it names the Notes half rather than the vault: the
   // vault is what a human opens in Obsidian and it holds Skills too.
   const notesDir = file.vault.notes === undefined ? defaults.notesDir : from(file.vault.notes);
+  const mcp = await loadMcpConfig({
+    filePath:
+      file.mcpConfig === undefined
+        ? path.join(found.directory, DEFAULT_MCP_CONFIG_FILENAME)
+        : from(file.mcpConfig),
+    required: file.mcpConfig !== undefined,
+  });
 
   return {
     source: found.source,
@@ -384,12 +330,12 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       reasoningEffort: file.engine.reasoningEffort ?? defaults.reasoningEffort,
       codexPath: file.engine.codexPath === undefined ? undefined : from(file.engine.codexPath),
     },
-    // Named one by one rather than spread over the defaults, so that a bound left out of the
-    // file is the shipped number and a bound written into it is exactly what was written.
+    // Per-Job limits are opt-in. Concurrency and Librarian timeout retain operational
+    // defaults because they protect shared service behavior rather than curtailing a Job.
     bounds: {
-      turnTimeoutMs: file.bounds.turnTimeoutMs ?? BOUND_DEFAULTS.turnTimeoutMs,
-      maxTurnsPerJob: file.bounds.maxTurnsPerJob ?? BOUND_DEFAULTS.maxTurnsPerJob,
-      tokenBudgetPerJob: file.bounds.tokenBudgetPerJob ?? BOUND_DEFAULTS.tokenBudgetPerJob,
+      turnTimeoutMs: file.bounds.turnTimeoutMs,
+      maxTurnsPerJob: file.bounds.maxTurnsPerJob,
+      tokenBudgetPerJob: file.bounds.tokenBudgetPerJob,
       maxConcurrentJobs: file.bounds.maxConcurrentJobs ?? BOUND_DEFAULTS.maxConcurrentJobs,
       librarianTimeoutMs: file.bounds.librarianTimeoutMs ?? BOUND_DEFAULTS.librarianTimeoutMs,
     },
@@ -397,7 +343,8 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       file.github === undefined
         ? undefined
         : await gitHubAppFrom(file.github, env, found.source, from),
-    mcpServers: file.connectors,
+    mcpServers: mcp.servers,
+    mcpConfigSource: mcp.source,
   };
 }
 

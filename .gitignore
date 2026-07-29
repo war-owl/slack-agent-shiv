@@ -12,6 +12,7 @@ dist/
 # This instance's configuration. It holds no credentials — only their variable names — so
 # it is safe to commit in your *own* fork, and it is not this project's to ship.
 /open-agent.config.json
+/mcp.json
 *.log
 .DS_Store
 .claude/settings.local.json

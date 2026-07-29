@@ -4,6 +4,10 @@ Type: grilling
 Status: resolved
 Blocked by: —
 
+> Superseded 2026-07-29: the inventory-pin proposal recorded in this resolved design
+> discussion was removed. Current behavior is documented in ADR-0002: inventories may
+> evolve, while known exact tool names and configured `disabledTools` remain unavailable.
+
 ## Question
 
 Graduated from [Which Codex interface: `exec` + SDK, or `app-server`?](11-codex-interface.md). The interface decision means the coworker **cannot ask permission** — `codex exec` has no mechanism for it. That is the intended behaviour, and it makes this ticket the entire safety story rather than a hardening pass.
