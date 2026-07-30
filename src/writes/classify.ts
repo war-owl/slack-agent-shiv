@@ -18,10 +18,9 @@ import type { EngineEvent, FileChange } from "../ports/engine.ts";
  *   workspace has left itself. **The Vault is the exception, and it is recorded
  *   separately elsewhere** — `vault/snapshot.ts` reads the directory itself and the
  *   result goes to the server-side Vault change log, not the Thread.
- * - **An MCP tool call.** Every completed call is recorded. The wrapper is not in the
- *   tool path (ADR-0005), and the engine event does not carry trustworthy read/write
- *   metadata. Recording all calls is deliberately forgiving: new tools are audited
- *   automatically, at the accepted cost of also recording reads.
+ * - **An MCP tool call.** Not posted as a separate Slack receipt. Connector activity
+ *   belongs in the Job's final answer when it matters; emitting one message per call
+ *   makes ordinary reads look like writes and clutters the conversation.
  * - **A shell command.** *Not* known, and this is the honest weak point. The table
  *   below recognises the few shapes a coworker plausibly reaches for; a command it
  *   does not recognise leaves no record, and no amount of lengthening the table fixes
@@ -124,20 +123,8 @@ export function writesIn(event: EngineEvent, scope: WriteScope): Write[] {
       }));
     }
 
-    case "tool-call": {
-      if (event.status === "in-progress") return [];
-      // A connector answers for one call and nothing else, so its outcome is knowable.
-      // Whether it read or wrote is not; all calls use the permanent audit path.
-      const refused = event.status === "failed";
-      return [
-        {
-          action: `Used ${event.server}`,
-          ...thingWritten(refused ? undefined : urlInResult(event.result), event.tool),
-          detail: event.error,
-          failure: refused ? "the connector refused it" : undefined,
-        },
-      ];
-    }
+    case "tool-call":
+      return [];
 
     default:
       // Plans, messages, reasoning, searches and Turn boundaries change nothing
@@ -284,27 +271,6 @@ const A_URL = /https?:\/\/[^\s"'<>)\]}]+/g;
 function urlsIn(text: string): string[] {
   // Trailing punctuation is prose, not part of the address.
   return [...text.matchAll(A_URL)].map((match) => match[0].replace(/[.,;:!?]+$/, ""));
-}
-
-/**
- * Where a human would go to look at what a tool just created.
- *
- * A result is usually JSON carrying several URLs — the created object's own web
- * address, plus whatever API endpoints came back with it. So the keys are tried **in
- * this order**, one at a time: GitHub answers a created pull request with `url` set to
- * `api.github.com/repos/…/pulls/12` and `html_url` set to the page a person can open,
- * and it puts the API one first. Taking whichever key appeared earliest would reliably
- * pick the wrong one.
- */
-const URL_KEYS = ["html_url", "permalink", "web_url", "webUrl", "url"] as const;
-
-function urlInResult(result: string | undefined): string | undefined {
-  if (result === undefined) return undefined;
-  for (const key of URL_KEYS) {
-    const found = result.match(new RegExp(`"${key}"\\s*:\\s*"(https?://[^"]+)"`));
-    if (found?.[1] !== undefined) return found[1];
-  }
-  return urlsIn(result).at(0);
 }
 
 /** A URL as a label: what it points at, without the ceremony. */

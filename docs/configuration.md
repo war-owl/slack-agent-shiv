@@ -175,11 +175,8 @@ Every enabled entry may also carry open-agent's policy:
 - **`enabled`** — set to `false` to keep an entry without probing or exposing it.
 - **`startupTimeoutSec` / `toolTimeoutSec`** — optional Codex MCP timeouts.
 
-Every completed MCP tool call is appended to the Thread's permanent audit record. There is
-no read/write list to maintain: the engine event identifies the server, tool, outcome, and
-result but does not provide portable read/write metadata. Recording reads as well as writes
-is the deliberate cost of ensuring that a newly added tool never creates a silent audit
-gap.
+MCP tool calls do not create separate Slack receipt messages. Relevant connector outcomes
+belong in the Job's final answer; routine reads should not add chatter to the Thread.
 
 MCP inventories are deliberately **not pinned**. Startup verifies that each enabled server
 can be reached and reports its current tool count, but tools may appear or disappear without

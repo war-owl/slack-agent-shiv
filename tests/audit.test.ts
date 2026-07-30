@@ -269,7 +269,7 @@ describe("the audit record of a Write", () => {
   });
 });
 
-describe("a connector's Writes", () => {
+describe("connector calls", () => {
   const withLinear = () =>
     coworkerHarness({
       mcpServers: [
@@ -281,7 +281,7 @@ describe("a connector's Writes", () => {
       ],
     });
 
-  it("flows through the same reporting path as a local one", async () => {
+  it("does not post a separate Slack message for a completed tool call", async () => {
     const h = await withLinear();
     h.engine.script = () => [
       {
@@ -297,47 +297,11 @@ describe("a connector's Writes", () => {
 
     await h.mention();
 
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(record).toContain("linear");
-    expect(record).toContain("save_issue");
-    expect(record).toContain("<https://linear.app/acme/issue/ENG-412|");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)[1]).toBe("Filed ENG-412.");
   });
 
-  it("links where a human would look, not where the API answered", async () => {
-    const h = await coworkerHarness({
-      mcpServers: [
-        {
-          name: "github",
-          url: "https://api.githubcopilot.com/mcp/",
-          bearerTokenEnvVar: "GH_PAT",
-        },
-      ],
-    });
-    h.engine.script = () => [
-      {
-        type: "tool-call",
-        server: "github",
-        tool: "create_pull_request",
-        status: "completed",
-        error: undefined,
-        // GitHub answers with the API address first and the page second. A record
-        // pointing at `api.github.com` identifies the pull request without being
-        // somewhere anyone can go and read it.
-        result:
-          '{"url":"https://api.github.com/repos/acme/platform/pulls/9",' +
-          '"html_url":"https://github.com/acme/platform/pull/9","number":9}',
-      },
-      { type: "message", text: "Opened the PR." },
-    ];
-
-    await h.mention();
-
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(record).toContain("<https://github.com/acme/platform/pull/9|");
-    expect(record).not.toContain("api.github.com");
-  });
-
-  it("records reads too, so newly added tools cannot create silent audit gaps", async () => {
+  it("does not turn connector reads into Slack chatter", async () => {
     const h = await withLinear();
     h.engine.script = () => [
       {
@@ -353,12 +317,11 @@ describe("a connector's Writes", () => {
 
     await h.mention();
 
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(record).toContain("linear");
-    expect(record).toContain("list_issues");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)[1]).toBe("Twelve open issues.");
   });
 
-  it("records an attempted Write the connector refused", async () => {
+  it("leaves a refused connector call to the final answer", async () => {
     const h = await withLinear();
     h.engine.script = () => [
       {
@@ -374,11 +337,8 @@ describe("a connector's Writes", () => {
 
     await h.mention();
 
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    // A connector answers for one call, so this record can say plainly that it did not
-    // happen — where a shell command's exit code cannot say that about a chain.
-    expect(record).toMatch(/refused/i);
-    expect(record).toContain("team not found");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)[1]).toBe("I could not file that.");
   });
 });
 

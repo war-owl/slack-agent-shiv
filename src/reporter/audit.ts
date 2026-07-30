@@ -45,11 +45,6 @@ export interface AuditTrail {
    * waits for the queue.
    */
   observe(event: EngineEvent): void;
-  /**
-   * Append a Write the wrapper found for itself rather than read off the event stream,
-   * such as a result-file upload.
-   */
-  append(write: Write): void;
   /** Wait for every queued record to have landed. Never rejects. */
   drain(): Promise<void>;
   /**
@@ -100,10 +95,6 @@ export function startAuditTrail(deps: AuditDeps): AuditTrail {
       for (const write of writesIn(event, deps.scope)) {
         pending = pending.then(() => append(write));
       }
-    },
-
-    append(write: Write): void {
-      pending = pending.then(() => append(write));
     },
 
     drain: () => pending,

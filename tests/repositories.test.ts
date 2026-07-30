@@ -203,11 +203,10 @@ describe("a configured code repository", () => {
     ).toContain("password=github-token-for-test");
 
     const records = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(records).toHaveLength(2);
+    expect(records).toHaveLength(1);
     expect(records[0]).toMatch(/pushed to a git remote/i);
-    expect(records[1]).toContain("create_pull_request");
-    expect(records[1]).toContain(
-      "<https://github.com/acme/platform/pull/42|github.com/acme/platform/pull/42>",
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS).join("\n")).not.toContain(
+      "create_pull_request",
     );
   });
 

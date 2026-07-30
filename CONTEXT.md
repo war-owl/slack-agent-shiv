@@ -90,18 +90,18 @@ than in the Thread.
 
 An action the coworker takes against an external system or the Thread itself: opening a
 pull request, updating a ticket, posting a comment, or sharing a result file. Distinguished
-from reading because the coworker acts unattended, so every Write is appended to its Thread
-as a permanent record.
+from reading because the coworker acts unattended. Shell actions the wrapper can identify
+are appended to the Thread as permanent records.
 
 **The Job's workspace is part of "itself".** A scratch script the coworker writes to answer
 a question changed nothing anyone else owns, and reporting it would be narration. A
 [Vault change](#vault-change) has its own operational record and is not a conversational
 Write.
 
-**MCP calls are conservatively over-recorded.** The engine event does not carry portable,
-trustworthy read/write metadata, so every completed MCP call uses the same permanent audit
-channel, including reads. A record saying “Used Linear · `list_issues`” reports an observed
-call; it does not claim the call changed Linear. This removes the per-server classification
-list and ensures new tools cannot silently escape the audit trail.
+**MCP calls and result-file delivery do not create separate receipt messages.** Connector
+activity belongs in the Job's final answer when it matters, and the uploaded file is its own
+visible Slack message. Posting a receipt for every connector read or file upload makes the
+conversation harder to follow without adding a useful outcome.
 
-Never revised once recorded, and never carried by [Progress](#progress).
+Shell Write receipts are never revised once recorded and never carried by
+[Progress](#progress).

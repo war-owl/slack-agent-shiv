@@ -501,23 +501,6 @@ async function runJob(
       outputDir,
       maxBytes: deps.config.fileTransfer.maxUploadBytes,
     });
-    for (const result of results.shared) {
-      audit.append({
-        action: "Uploaded a result file",
-        subject: result.filename,
-        url: result.permalink,
-        via: "Slack files.uploadV2",
-      });
-    }
-    for (const result of results.unshared) {
-      audit.append({
-        action: "Tried to upload a result file",
-        subject: result.filename,
-        via: "Slack files.uploadV2",
-        failure: "the upload failed",
-        detail: result.reason,
-      });
-    }
     if (results.unshared.length > 0) {
       const sharedSentence =
         results.shared.length === 0

@@ -63,15 +63,15 @@ known irreversible names. The former asks GitHub's server not to expose them; th
 keeps the project policy visible and effective at the host.
 
 Tool inventories may evolve without blocking startup. Operators add exact names to the
-optional `disabledTools` when they want further exclusions. Every completed MCP call,
-including newly introduced tools and reads, appears in the Slack audit automatically.
+optional `disabledTools` when they want further exclusions. MCP calls do not create
+separate Slack receipt messages; relevant outcomes belong in the Job's final answer.
 
 ## Consequences
 
 - GitHub configuration is removable and extensible in exactly the same way as any MCP
   server. Removing its entry removes the capability.
-- GitHub MCP calls are recorded exactly from engine tool-call events rather than inferred
-  from shell strings.
+- GitHub MCP calls use the connector's exact tool events for progress, without adding a
+  separate receipt message to the Thread.
 - `merge_pull_request` and `delete_file` return to layer 2. Branch protection remains the
   server-side defense for shell access and credential bypasses.
 - Local checkout, editing, tests, and branch push remain shell work. MCP handles GitHub

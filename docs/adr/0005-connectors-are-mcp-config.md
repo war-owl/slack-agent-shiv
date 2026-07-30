@@ -9,6 +9,10 @@ GitHub's official MCP server now uses this same interface. The superseded Skill-
 design in ADR-0006 never reached a working Job path and duplicated configuration,
 authentication, audit, and preflight machinery.
 
+**Amended 2026-07-30: MCP calls no longer create separate Slack receipt messages.**
+Relevant outcomes belong in the Job's final answer; routine connector reads should not
+add chatter to the Thread.
+
 **Amended 2026-07-29: all MCP servers now live in one project-owned `mcp.json`.** MCP and
 its TypeScript SDK do not define a portable host configuration format, so the file is not
 presented as an MCP standard. It is a small validated seam that supports the specification's
@@ -16,9 +20,8 @@ two transports—Streamable HTTP and stdio—and translates the same entries int
 configuration. Preflight now uses the official `@modelcontextprotocol/client` v2 SDK rather
 than maintaining a parallel implementation of initialization, sessions, SSE parsing, and
 pagination. Optional exact-name exclusions remain beside each server because they are
-open-agent policy, not transport configuration. Every completed MCP tool call is audited,
-so no per-server read/write classification is required. Tool inventories are intentionally
-not pinned: additions and removals do not prevent startup. Research:
+open-agent policy, not transport configuration. Tool inventories are intentionally not
+pinned: additions and removals do not prevent startup. Research:
 [`mcp-typescript-sdk-client-config.md`](../../.scratch/slack-coworker/research/mcp-typescript-sdk-client-config.md).
 
 "Connect it to various apps" is delivered by pointing Codex at MCP servers, not by a connector API this project defines. Two facts settled it. First, **the wrapper is not in the tool path**: under [ADR-0001](0001-codex-cli-via-exec-and-sdk.md) Codex reads MCP servers from its own config and calls them directly, so any normalising layer would mean shipping a **proxy MCP server** — a whole component to build, secure, and keep synchronised with upstreams that change without notice. Second, **normalisation would have to lie**: GitHub's binary `open`/`closed` against Linear's team-scoped `WorkflowState`, no lattice between Project/Team/Repo/Cycle/Initiative, flat comments against threaded-and-polymorphic ones, and a `save_*` upsert idiom against `create_*`/`update_*`. A uniform surface flattens to a lowest common denominator and misrepresents the difference; a capable model is better served by each service's real vocabulary.

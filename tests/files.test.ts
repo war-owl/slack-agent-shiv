@@ -326,9 +326,9 @@ describe("result files shared back to Slack", () => {
         bytes,
       }),
     ]);
-    expect(h.slack.textsIn("1700000042.000100").join("\n")).toContain(
-      "Uploaded a result file",
-    );
+    const thread = h.slack.textsIn("1700000042.000100");
+    expect(thread).toHaveLength(2);
+    expect(thread.join("\n")).not.toContain("Uploaded a result file");
     expect(h.engine.turns[0]).toContain(
       path.join(
         h.engine.startedSessions[0]!.workingDirectory,
@@ -366,7 +366,6 @@ describe("result files shared back to Slack", () => {
 
     expect(h.slack.uploads).toHaveLength(0);
     const thread = h.slack.textsIn("1700000000.000100").join("\n");
-    expect(thread).toContain("Tried to upload a result file");
     expect(thread).toContain("missing_scope: files:write");
     expect(thread).toContain("I could not share a result file");
     expect(thread).not.toContain("I attached report.pdf");
