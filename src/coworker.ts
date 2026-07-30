@@ -1,10 +1,10 @@
 import type { Config } from "./config.ts";
 import { reasonFor } from "./failure.ts";
 import {
-  ingestMentionFiles,
   prepareOutputDirectory,
   shareResultFiles,
-} from "./files/transfer.ts";
+} from "./files/egress.ts";
+import { ingestMentionFiles } from "./files/ingress.ts";
 import type { IngestedFile, MentionFile } from "./files/types.ts";
 import { boundJob, type JobBounds, type StopReason } from "./jobs/bounds.ts";
 import { trackTurnDurability } from "./jobs/interruption.ts";
@@ -480,6 +480,19 @@ async function runJob(
       });
     }
     if (results.unshared.length > 0) {
+      const sharedSentence =
+        results.shared.length === 0
+          ? ""
+          : `I shared ${results.shared.map((result) => result.filename).join(", ")}. `;
+      const unsharedNames = results.unshared
+        .map((result) => result.filename)
+        .join(", ");
+      // A model may optimistically say that it attached a file before this delivery
+      // boundary actually runs. Once delivery fails, replace that draft with an account
+      // grounded in the observed result so the Thread never receives a false claim.
+      answer =
+        `${sharedSentence}I completed the work, but I could not share ${unsharedNames}. ` +
+        `The result files remain in the Job workspace at ${outputDir}.`;
       const summary = results.unshared
         .map((result) => `${result.filename}: ${result.reason}`)
         .join("; ");

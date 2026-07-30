@@ -1,14 +1,8 @@
-import { constants } from "node:fs";
-import { mkdir, open, readdir, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { reasonFor } from "../failure.ts";
 import type { SlackClient } from "../ports/slack.ts";
-import type { Thread } from "../thread.ts";
 import type { IngestedFile, MentionFile } from "./types.ts";
-
-const JOB_FILES_DIR = ".open-agent";
-const INPUTS_DIR = "inputs";
-const OUTPUTS_DIR = "outputs";
+import { resetJobFileDirectory, safeSegment } from "./paths.ts";
 
 export async function ingestMentionFiles(input: {
   slack: SlackClient;
@@ -30,16 +24,7 @@ export async function ingestMentionFiles(input: {
     assertSlackDownloadUrl(file);
   }
 
-  const directory = path.join(
-    input.workspaceDir,
-    JOB_FILES_DIR,
-    INPUTS_DIR,
-    safeSegment(input.jobId),
-  );
-  // The event id is normally unique, but Slack can redeliver after a process restart.
-  // Rebuild this attempt's input set from authenticated Slack bytes.
-  await rm(directory, { recursive: true, force: true });
-  await mkdir(directory, { recursive: true });
+  const directory = await resetJobFileDirectory(input.workspaceDir, "inputs", input.jobId);
 
   const used = new Set<string>();
   const ingested: IngestedFile[] = [];
@@ -60,78 +45,6 @@ export async function ingestMentionFiles(input: {
   return ingested;
 }
 
-export async function prepareOutputDirectory(input: {
-  workspaceDir: string;
-  jobId: string;
-}): Promise<string> {
-  const directory = path.join(
-    input.workspaceDir,
-    JOB_FILES_DIR,
-    OUTPUTS_DIR,
-    safeSegment(input.jobId),
-  );
-  // Never upload a stale partial artifact left by an interrupted attempt as this run's
-  // result if Slack redelivers the event after a process restart.
-  await rm(directory, { recursive: true, force: true });
-  await mkdir(directory, { recursive: true });
-  return directory;
-}
-
-export interface SharedResult {
-  filename: string;
-  permalink: string | undefined;
-}
-
-export interface UnsharedResult {
-  filename: string;
-  reason: string;
-}
-
-export async function shareResultFiles(input: {
-  slack: SlackClient;
-  thread: Thread;
-  outputDir: string;
-  maxBytes: number;
-}): Promise<{ shared: SharedResult[]; unshared: UnsharedResult[] }> {
-  const entries = (await readdir(input.outputDir, { withFileTypes: true })).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-  const shared: SharedResult[] = [];
-  const unshared: UnsharedResult[] = [];
-
-  for (const entry of entries) {
-    // A flat, regular-file-only dropbox. Directories and links are workspace organization,
-    // not an instruction to walk an arbitrary tree and send it to Slack.
-    if (!entry.isFile()) continue;
-    const filename = entry.name;
-    const filePath = path.join(input.outputDir, filename);
-    let handle;
-    try {
-      handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-      const stat = await handle.stat();
-      if (!stat.isFile()) continue;
-      if (stat.size > input.maxBytes) {
-        throw new Error(
-          `${stat.size} bytes is over the ${input.maxBytes}-byte result-file limit`,
-        );
-      }
-      const bytes = await handle.readFile();
-      const uploaded = await input.slack.uploadFile({
-        thread: input.thread,
-        filename,
-        bytes,
-        comment: "Result file attached.",
-      });
-      shared.push({ filename, permalink: uploaded.permalink });
-    } catch (error) {
-      unshared.push({ filename, reason: reasonFor(error) });
-    } finally {
-      await handle?.close();
-    }
-  }
-  return { shared, unshared };
-}
-
 function assertSlackDownloadUrl(file: MentionFile): void {
   let url: URL;
   try {
@@ -146,9 +59,16 @@ function assertSlackDownloadUrl(file: MentionFile): void {
 
 function assertSupported(file: MentionFile): void {
   const extension = path.extname(file.name).toLowerCase();
+  if (file.mimetype.startsWith("text/") || SUPPORTED_MIME_TYPES.has(file.mimetype)) {
+    return;
+  }
+  // Slack sometimes reports an otherwise useful file as a generic binary. Only that
+  // non-claim may fall back to the filename; an explicit `image/png` must not be
+  // overridden by the attacker-controlled name `dashboard.csv`.
   if (
-    file.mimetype.startsWith("text/") ||
-    SUPPORTED_MIME_TYPES.has(file.mimetype) ||
+    (file.mimetype === "" ||
+      file.mimetype === "unknown" ||
+      file.mimetype === "application/octet-stream") &&
     SUPPORTED_EXTENSIONS.has(extension)
   ) {
     return;
@@ -248,8 +168,4 @@ function uniqueFilename(given: string, used: Set<string>): string {
   const unique = `${stem}-${n}${extension}`;
   used.add(unique);
   return unique;
-}
-
-function safeSegment(given: string): string {
-  return given.replace(/[^A-Za-z0-9._-]/g, "_") || "unknown";
 }

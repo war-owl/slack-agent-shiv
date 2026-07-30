@@ -4,8 +4,7 @@ Status: ready-for-agent
 
 Synthesised from the [map](map.md) — twelve decision tickets, five ADRs, and the active
 build slices. Every decision below traces to one of them; this document assembles them
-into something buildable and does not reopen any. Distribution and public-readiness work
-is deferred while the project focuses on our own workflow.
+into something buildable and does not reopen any.
 
 **Revised 2026-07-28**, after the provisioning checks ran and six decisions landed that this document originally predated. The changes are not cosmetic — the branch-protection story moved from *verified assumption* to *measured, and partly broken*, and preflight's behaviour reversed from refusing to warning. If you are returning to a copy of this spec you read earlier, reread [The action boundary](#the-action-boundary) and [Skills](#skills).
 
@@ -416,9 +415,6 @@ Ruled out by decisions already made. Each returns only if its decision is reopen
 - **A database connector.** Deliberately not built: databases are reached by Skill plus shell, so there is no MCP server to configure, pin, or deny-list.
 - **Argument-level tool constraints** — structurally unavailable.
 - **Session storage retention and pruning**, and what happens to a Session when its Thread is archived — acknowledged fog, does not block v1.
-- **Distribution readiness** — onboarding, licensing, contribution workflow, and packaging
-  for other installations are deferred while we solve our own workflow.
-
 ## Further Notes
 
 **On provisioning — simplified by

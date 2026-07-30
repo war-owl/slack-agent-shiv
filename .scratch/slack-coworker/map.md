@@ -10,7 +10,7 @@ v1 is done when we can @-mention the bot in a thread, walk away, and come back t
 
 **The spec exists**: [`spec.md`](spec.md) (`ready-for-agent`) — synthesised from the eleven resolved tickets and five ADRs.
 
-**The build tickets exist**: fourteen tracer-bullet slices in [`build/`](build/), numbered in dependency order. Three were added after charting: [`build/14`](build/14-file-ingress-from-slack.md) carries raw data into a Job, [`build/15`](build/15-skills.md) adds human-authored procedures for non-MCP capabilities, and [`build/16`](build/16-file-egress-to-slack.md) returns result artifacts to the Thread. Linear travels through the generic MCP path and therefore needs no connector-specific slice. Kept separate from `issues/` so decision tickets and work tickets do not share a numbering line. The former setup/public-readiness slice was removed when the project narrowed to solving our own workflow.
+**The build tickets exist**: fourteen tracer-bullet slices in [`build/`](build/), numbered in dependency order. Three were added after charting: [`build/14`](build/14-file-ingress-from-slack.md) carries raw data into a Job, [`build/15`](build/15-skills.md) adds human-authored procedures for non-MCP capabilities, and [`build/16`](build/16-file-egress-to-slack.md) returns result artifacts to the Thread. Linear travels through the generic MCP path and therefore needs no connector-specific slice. Kept separate from `issues/` so decision tickets and work tickets do not share a numbering line.
 
 **Amended 2026-07-30: GitHub is an ordinary MCP connector.** The intermediate GitHub
 App plus `gh` Skill design in ADR-0006 introduced a second configuration model,
@@ -52,10 +52,8 @@ remaining workspace operation.
 
 **Settled while charting** (these fix the scope; reopening one redraws the map):
 
-- **Audience** — our own Slack workspace. Not multi-tenant SaaS and not currently a
-  distributed product. Configuration and MCP extension remain useful engineering seams,
-  but packaging them for strangers is deferred. Slack's rate limits reinforce using an
-  internal customer-built app for this workspace.
+- **Audience** — our own Slack workspace, not multi-tenant SaaS. Slack's rate limits
+  reinforce using an internal customer-built app for this workspace.
 - **"Full AFK" means delegate-and-walk-away.** Always human-initiated: you @-mention it with a real task, it works for minutes or hours, it reports back in the thread. Needs durable long-running jobs and progress reporting; needs no event ingestion and no scheduler. The other two senses of AFK — unsupervised action, and acting unprompted — are fog and out-of-scope respectively.
 - **v1 scope is all four capabilities**: the Slack thread spine, Obsidian-style notes, evolving memory, and GitHub + Linear connectors.
 - **Stack is TypeScript.** Slack's Bolt SDK is first-class in TS, MCP has strong TS tooling, and contributors can pick it up. Note the TypeScript codebase is the *Slack-and-orchestration layer*; the agent itself is a separate process (see the engine decision below).
@@ -113,7 +111,4 @@ Ruled beyond the destination. Returns only if the destination is redrawn, and th
 
 - **Multi-tenant SaaS** — Slack app distribution, OAuth install flows, per-workspace token storage, tenant-isolated memory, billing, Slack app review.
 - **Acting unprompted** — channel watching, GitHub/Linear webhooks, schedulers, "this PR has been stale 3 days". Ruled out by the delegate-and-walk-away reading of AFK. The largest single thing not being built.
-- **Distribution and public-release readiness** — manifests, onboarding guides, licence,
-  contribution model, and third-party setup polish are deferred while we solve our own
-  workflow.
 - **Non-Slack surfaces** — Discord, Teams, a CLI, a web UI. Slack is the product surface for v1.

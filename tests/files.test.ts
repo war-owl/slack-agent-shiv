@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { coworkerHarness } from "./support/harness.ts";
@@ -134,6 +134,30 @@ describe("files carried into a Job from Slack", () => {
     );
   });
 
+  it("does not let a supported filename extension override an explicitly unsupported MIME type", async () => {
+    const h = await coworkerHarness();
+
+    await h.mention({
+      eventId: "Ev_DISGUISED_IMAGE",
+      files: [
+        {
+          id: "F_DISGUISED_IMAGE",
+          name: "dashboard.csv",
+          mimetype: "image/png",
+          size: 100,
+          url_private_download:
+            "https://files.slack.com/files-pri/T_TEST-F_IMAGE/dashboard.csv",
+        },
+      ],
+    } as Parameters<typeof h.mention>[0]);
+
+    expect(h.slack.downloadAttempts).toHaveLength(0);
+    expect(h.engine.turns).toHaveLength(0);
+    expect(h.slack.textsIn("1700000000.000100").join("\n")).toContain(
+      "I cannot read dashboard.csv (image/png)",
+    );
+  });
+
   it("tells the Librarian which Slack source file could have informed a Note", async () => {
     const h = await coworkerHarness();
     const url = "https://files.slack.com/files-pri/T_TEST-F_SOURCE/source.csv";
@@ -228,7 +252,7 @@ describe("result files shared back to Slack", () => {
         "report.pdf",
       );
       await writeFile(output, Buffer.from("%PDF-result"));
-      return [{ type: "message", text: "The report is ready." }];
+      return [{ type: "message", text: "I attached report.pdf." }];
     };
 
     await h.mention({ eventId: "Ev_UPLOAD_FAIL" });
@@ -238,6 +262,7 @@ describe("result files shared back to Slack", () => {
     expect(thread).toContain("Tried to upload a result file");
     expect(thread).toContain("missing_scope: files:write");
     expect(thread).toContain("I could not share a result file");
+    expect(thread).not.toContain("I attached report.pdf");
   });
 
   it("rejects an oversized result before asking Slack to upload it", async () => {
@@ -276,5 +301,22 @@ describe("result files shared back to Slack", () => {
     await h.mention({ eventId: "Ev_LINK" });
 
     expect(h.slack.uploads).toHaveLength(0);
+  });
+
+  it("still answers and releases the Thread when the agent removes its output directory", async () => {
+    const h = await coworkerHarness();
+    h.engine.script = async ({ workingDirectory }) => {
+      await rm(path.join(workingDirectory, ".open-agent", "outputs", "Ev_REMOVED"), {
+        recursive: true,
+        force: true,
+      });
+      return [{ type: "message", text: "No artifact was needed." }];
+    };
+
+    await h.mention({ eventId: "Ev_REMOVED" });
+    await h.mention({ eventId: "Ev_AFTER_REMOVED" });
+
+    expect(h.slack.textsIn("1700000000.000100")).toContain("No artifact was needed.");
+    expect(h.engine.turns).toHaveLength(2);
   });
 });

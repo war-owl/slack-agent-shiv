@@ -41,3 +41,9 @@ Each successful file is followed by a receipt linked to Slack's permalink when a
 
 The code and tests are complete. Applying `files:write` to our Slack app and exercising a
 real upload remain workspace operations.
+
+**Review-hardened 2026-07-30.** The upload boundary tolerates an output directory removed
+by the agent without losing the final Thread response or blocking the next queued Job.
+When an upload fails, the wrapper replaces any optimistic attachment claim from the model
+with the observed delivery result. Input and output transfer now live in separate modules
+with their shared Job-path lifecycle in one place.
