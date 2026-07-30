@@ -51,11 +51,12 @@ export interface CodexEngineOptions {
   /** An explicit `codex` binary, when the one on `PATH` is not the one to run. */
   codexPath?: string | undefined;
   /**
-   * The connectors, which Codex reads as its own MCP configuration (ADR-0005).
+   * The MCP connectors, which Codex reads as its own configuration (ADR-0005).
    *
    * The wrapper is not in the tool path: it does not proxy these calls, it *generates the
    * configuration that grants them* — including each server's `disabled_tools`, which is
-   * the whole of layer 2. See {@link mcpServerConfig}.
+   * the whole of layer 2. Codex Apps are disabled separately so they cannot introduce
+   * connectors with credentials outside this registry. See {@link engineConfig}.
    */
   mcpServers?: readonly McpServerConfig[];
 }
@@ -86,13 +87,13 @@ const SANDBOX = {
  */
 export async function createCodexEngine(options: CodexEngineOptions): Promise<Engine> {
   const binary = await resolveCodexBinary(options.codexPath);
-  const generated = mcpServerConfig(options.mcpServers ?? []);
+  const generated = engineConfig(options.mcpServers ?? []);
   const codex = new Codex({
     ...(binary.path ? { codexPathOverride: binary.path } : {}),
     // Flattened by the SDK into repeated `--config key=value` overrides, so the whole
     // `config.toml` surface is reachable — and so the deny-list this instance generates
     // reaches the subprocess without a file anybody has to keep in sync.
-    ...(generated === undefined ? {} : { config: generated }),
+    config: generated,
   });
 
   const threadOptions = (session: SessionOptions): ThreadOptions => ({
@@ -141,24 +142,36 @@ export async function createCodexEngine(options: CodexEngineOptions): Promise<En
 }
 
 /**
- * The connectors, as `config.toml` overrides — `[mcp_servers.<id>]` and its `disabled_tools`.
+ * The complete external-tool configuration handed to Codex.
  *
- * This is where layer 2 of the action boundary actually lands. The wrapper cannot refuse a
- * tool call (it is not in the path) and cannot inspect one; what it can do is decline to
- * tell Codex that the tool exists, which is why `disabled_tools` is generated here rather
- * than checked anywhere.
+ * Codex Apps are enabled by default. They are a separate connector surface from
+ * `mcp_servers`, use their own authorizations, and remain available when MCP configuration
+ * is supplied. Disable them explicitly: ADR-0005 says the project-owned MCP registry is the
+ * one source of connectors, and an inherited `codex_apps` GitHub tool would bypass both its
+ * credential and repository expectations.
  *
- * Two details that are easy to get wrong and expensive to get wrong:
+ * The configured MCP servers still become `[mcp_servers.<id>]` overrides. This is where
+ * layer 2 of the action boundary lands: the wrapper cannot refuse or inspect a tool call,
+ * so `disabled_tools` must be part of the configuration that grants the tool.
  *
  * - **`bearer_token_env_var`, never the token.** Codex resolves it from its own process
  *   environment, so the credential is never written into a config value that would end up in
  *   a `--config` argument — and therefore never in this process's command line, where `ps`
  *   would show it to every user on the machine.
- * - **Undefined rather than an empty table** when there are no connectors. Passing
- *   `mcp_servers = {}` is not the same as passing nothing: it is a value that could shadow a
- *   self-hoster's own `~/.codex/config.toml` entries, and an instance with no connectors
- *   configured has no opinion about the ones they added for their own use.
+ * - **No empty `mcp_servers` table.** When this instance has no MCP connectors, omit that
+ *   key rather than shadowing a self-hoster's own MCP configuration. Apps remain disabled
+ *   either way because they are not part of that explicit registry.
  */
+export function engineConfig(
+  servers: readonly McpServerConfig[],
+): NonNullable<CodexOptions["config"]> {
+  const mcp = mcpServerConfig(servers);
+  return {
+    features: { apps: false },
+    ...(mcp ?? {}),
+  };
+}
+
 function mcpServerConfig(
   servers: readonly McpServerConfig[],
 ): NonNullable<CodexOptions["config"]> | undefined {

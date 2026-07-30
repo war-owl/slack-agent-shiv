@@ -2,19 +2,17 @@ import { loadConfig } from "./config.ts";
 import { createCoworker } from "./coworker.ts";
 import { createCodexEngine } from "./engine/codex.ts";
 import { createGitHubRepositoryProtectionProbe } from "./github/protection.ts";
+import { createConsoleLogger } from "./log.ts";
 import { createMcpInventoryProber } from "./mcp/prober.ts";
 import { systemClock } from "./ports/clock.ts";
-import type { Logger } from "./ports/log.ts";
 import { openSessionStore, sessionStoreFile } from "./sessions/store.ts";
 import { createSlackApp, slackClientFor, subscribeToMentions } from "./slack/gateway.ts";
 import { createMentionGateway } from "./slack/mentions.ts";
 
-const log: Logger = {
-  info: (message) => console.log(message),
-  warn: (message) => console.warn(`WARNING: ${message}`),
-};
+const log = createConsoleLogger();
 
 async function main(): Promise<void> {
+  log.banner();
   const config = await loadConfig();
   const app = createSlackApp(config);
   const githubTokenVariable = config.repositoryProtectionTokenEnvVar;
@@ -55,10 +53,10 @@ async function main(): Promise<void> {
 
   subscribeToMentions(app, createMentionGateway({ coworker, log }), log);
   await app.start();
-  log.info(`Listening for @-mentions over Socket Mode. Vault: ${config.notesDir}`);
+  log.ready(`Listening for @-mentions over Socket Mode · Vault: ${config.notesDir}`);
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  log.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

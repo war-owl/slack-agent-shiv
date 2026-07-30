@@ -158,6 +158,10 @@ official [`@modelcontextprotocol/client`](https://github.com/modelcontextprotoco
 v2 SDK during preflight. Codex receives the same validated entries through its own MCP
 configuration, so there is no second server list to synchronize.
 
+Codex Apps/connectors are a separate tool source and are enabled by Codex by default. The
+engine disables that source for Jobs, so separately authorized apps cannot add tools outside
+this registry; only the MCP servers validated from `mcp.json` are exposed.
+
 Codex resolves connector credentials for MCP calls because the wrapper is not in that tool
 path. The one exception is the read-only GitHub repository-protection check: startup
 resolves the GitHub connector's bearer token to call the repository and rules endpoints

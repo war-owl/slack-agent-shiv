@@ -29,6 +29,9 @@ not pinned: additions and removals do not prevent startup. Research:
 - **Both Streamable HTTP and stdio are supported.** Credentials stay as per-server
   environment-variable references; stdio commands are executable software and receive a
   startup warning.
+- **Codex Apps are disabled for Jobs.** Apps/connectors are enabled by default in Codex and
+  use authorizations outside this registry. The generated engine configuration sets
+  `features.apps = false`, so a Job sees only the MCP servers explicitly named here.
 - **The [ADR-0002](0002-unattended-action-boundary.md) deny-list is Codex config**
   (`disabled_tools` per server), not wrapper enforcement.
 - **Argument-level constraints are structurally unavailable.** Nothing can inspect the arguments to Linear's `save_issue` to distinguish creating from overwriting. Already accepted in ADR-0002; now a property of the architecture rather than a choice.
