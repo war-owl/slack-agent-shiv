@@ -14,16 +14,16 @@ filesystem and branch push; GitHub MCP owns repository metadata and pull-request
 
 ## Acceptance criteria
 
-- [ ] A local checkout is configured and the coworker works inside it
-- [ ] The coworker can search the codebase and run its tests in the checkout
-- [ ] Git authentication uses the fine-grained token without embedding it in the remote URL
-- [ ] A feature branch is pushed over git and produces a permanent audit record
-- [ ] A pull request is opened through `create_pull_request` on the official GitHub MCP
+- [x] A local checkout is configured and the coworker works inside it
+- [x] The coworker can search the codebase and run its tests in the checkout
+- [x] Git authentication uses the fine-grained token without embedding it in the remote URL
+- [x] A feature branch is pushed over git and produces a permanent audit record
+- [x] A pull request is opened through `create_pull_request` on the official GitHub MCP
   server and produces an exact MCP audit record with a link
-- [ ] Force-pushing to the protected default branch fails
-- [ ] Force-push to the coworker's own feature branches remains possible and is documented
+- [x] Force-pushing to the protected default branch fails
+- [x] Force-push to the coworker's own feature branches remains possible and is documented
   as accepted
-- [ ] The `pre-push` hook from [build/10](10-branch-protection-verification.md) is installed
+- [x] The `pre-push` hook from [build/10](10-branch-protection-verification.md) is installed
   on every checkout and documented as defense-in-depth rather than a boundary
 
 ## Notes
@@ -32,3 +32,25 @@ Layer 2 covers the MCP pull-request path: `merge_pull_request` and `delete_file`
 disabled. Git itself remains a shell path, so the local hook and branch protection cover a
 different failure surface. The hook is bypassable with `--no-verify`; branch protection is
 the server-side control.
+
+## Comments
+
+**Implemented 2026-07-30.** Configuring `owner/repository` now gives each Thread a
+persistent checkout under its own workspace. This is deliberately not one checkout shared
+by the instance: Jobs in different Threads run concurrently, while Jobs in one Thread are
+sequential and need follow-ups to find the branch and files already there. The wrapper
+fetches before every Job without resetting or discarding that Thread's work.
+
+The canonical HTTPS remote contains no credential. A checkout-local helper reads the bearer
+variable already named by the enabled GitHub MCP entry and supplies the fine-grained token
+only when Git asks for `github.com`; its file contains the variable name, never the value.
+Both that helper and the stdin-driven `pre-push` hook are re-imposed before each Job because
+they sit in a workspace the agent can edit.
+
+The top seam drives a synthetic mention against a real bare Git remote. The Job sees the
+checkout path in its prompt, reads the code, runs its test, commits, pushes a feature
+branch, and emits the official server's `create_pull_request` event. The Thread receives
+two permanent records in order: the git push and the exact linked MCP result. The real-git
+matrix also proves the hook blocks `HEAD:main`, forced non-fast-forwards, and deletion,
+while `--no-verify` demonstrates the accepted residual ability to replace the coworker's
+own feature branch.

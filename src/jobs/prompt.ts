@@ -1,4 +1,5 @@
 import type { Mention } from "../coworker.ts";
+import type { PreparedRepository } from "../repositories/checkout.ts";
 import { rootForPrompt, type RootNote } from "../vault/root.ts";
 import { skillsForPrompt, type Skill } from "../vault/skills.ts";
 import { taskIn } from "./request.ts";
@@ -53,6 +54,8 @@ export interface PromptContext {
    * from the Thread while the Note that settles it sits unread (ADR-0003).
    */
   root: RootNote;
+  /** Per-Thread working trees prepared before the engine starts. */
+  repositories: readonly PreparedRepository[];
 }
 
 export function buildJobPrompt(mention: Mention, context: PromptContext): string {
@@ -65,6 +68,7 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     `From: <@${mention.userId}>`,
     "",
     ...vaultSection(context),
+    ...repositorySection(context.repositories),
     "",
     ...(context.queuedDuringPreviousJob ? [QUEUED_NOTE, ""] : []),
     "Their message:",
@@ -74,6 +78,22 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     "Work on this now. Your final message is what gets posted back into the Thread,",
     "so write it for the people reading that Thread.",
   ].join("\n");
+}
+
+function repositorySection(repositories: readonly PreparedRepository[]): string[] {
+  if (repositories.length === 0) return [];
+  return [
+    "",
+    "Your configured code repositories are checked out here:",
+    ...repositories.map(
+      (repository) =>
+        `- ${repository.name}: \`${repository.checkout}\` (default branch: ` +
+        `${repository.defaultBranch})`,
+    ),
+    "",
+    "Work in these local checkouts for code search, edits, and tests. Push a feature branch",
+    "with git, then use GitHub's `create_pull_request` MCP tool to open the pull request.",
+  ];
 }
 
 /**

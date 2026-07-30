@@ -63,6 +63,8 @@ export interface CoworkerDeps {
    * ran them.
    */
   env: NodeJS.ProcessEnv;
+  /** Test transport override; production repositories use their canonical GitHub HTTPS URL. */
+  repositoryRemote?: ((repository: string) => string) | undefined;
 }
 
 export interface Coworker {
@@ -300,7 +302,11 @@ async function runJob(
   let root: RootNote = NO_ROOT_NOTE;
 
   try {
-    const workingDirectory = await prepareWorkspace(deps.config, mention.thread, deps.log);
+    const prepared = await prepareWorkspace(deps.config, mention.thread, deps.log, {
+      env: deps.env,
+      remoteFor: deps.repositoryRemote,
+    });
+    const workingDirectory = prepared.directory;
     workspaceDir = workingDirectory;
     audit = startAuditTrail({
       slack: deps.slack,
@@ -362,6 +368,7 @@ async function runJob(
       skillsDir: deps.config.skillsDir,
       skills,
       root,
+      repositories: prepared.repositories,
     });
 
     try {

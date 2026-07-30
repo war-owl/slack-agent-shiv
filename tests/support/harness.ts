@@ -32,6 +32,13 @@ export interface HarnessOptions {
   mcpServers?: readonly PartialConnector[];
   /** GitHub repositories whose server-side boundary preflight verifies. */
   repositories?: readonly string[];
+  /**
+   * Test-only transport overrides for configured repositories.
+   *
+   * Production derives the canonical GitHub HTTPS URL from `owner/repository`. Tests use
+   * local bare remotes so the same checkout lifecycle can run without a network or token.
+   */
+  repositoryRemotes?: Readonly<Record<string, string>>;
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
   bounds?: Partial<Config["bounds"]>;
   /** The credential store preflight resolves named credentials out of. */
@@ -153,7 +160,8 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
       ...server,
     })),
     repositories: options.repositories ?? [],
-    repositoryProtectionTokenEnvVar: undefined,
+    repositoryProtectionTokenEnvVar:
+      (options.repositories?.length ?? 0) > 0 ? "GITHUB_TOKEN" : undefined,
   };
 
   // A real file, like the Vault: "the mapping survives a restart" is a claim about
@@ -182,6 +190,10 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     // Not the real environment: a startup check on a named credential must not pass or fail
     // because of what happens to be in the shell that ran the tests.
     env: options.env ?? {},
+    repositoryRemote:
+      options.repositoryRemotes === undefined
+        ? undefined
+        : (repository) => options.repositoryRemotes?.[repository] ?? repository,
     log: {
       info: (message) => logs.push(message),
       warn: (message) => {

@@ -66,5 +66,10 @@ describe("the checkout's pre-push guardrail", () => {
     await expect(
       failedGit("-C", checkout, "push", "origin", ":feature"),
     ).resolves.toContain("blocked: deletion of remote ref 'refs/heads/feature'");
+
+    // The hook is accident protection, not the server-side boundary. A deliberate bypass
+    // remains capable of replacing the coworker's own feature branch; build/12 accepts
+    // that residual power because losing one of these branches costs a redo, not a merge.
+    await git("-C", checkout, "push", "--no-verify", "origin", "+HEAD:feature");
   });
 });

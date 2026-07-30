@@ -3,8 +3,8 @@
 One instance file, one MCP registry, and secrets in the environment.
 
 `open-agent.config.json` describes the instance: where the Vault is, what stops a runaway
-Job, which model, which repositories need their server-side boundary checked, and where its
-MCP registry lives. `mcp.json` is the
+Job, which model, which repositories it works in, and where its MCP registry lives.
+`mcp.json` is the
 single extensible registry for every MCP server. Both files **name** credentials by
 environment variable and never contain their values, exactly as a
 [Skill](../CONTEXT.md#skill) does. `.env` is the keyring.
@@ -200,6 +200,24 @@ new destructive MCP tool is available until somebody adds its exact name to the 
 Linear has no repository-shaped third layer at all and always runs on policy and the MCP
 deny-list alone.
 
+The same list configures code checkouts. Before a Job starts, each repository is fetched
+from its canonical `https://github.com/owner/repository.git` URL into
+`<workspace>/repositories/owner-repository`. Every Thread has its own working tree, so Jobs
+in different Threads can edit and test concurrently without changing each other's branch;
+follow-ups in one Thread keep that Thread's checkout. The wrapper fetches remote state before
+each Job but does not reset the current branch or discard work.
+
+Git uses the same fine-grained token named by the GitHub MCP entry. A checkout-local
+credential helper reads that environment variable when Git asks for GitHub credentials; the
+token is never written into the remote URL, repository configuration, or helper file. The
+helper and the `pre-push` hook are re-installed before every Job because the checkout is
+writable and a previous Job could have changed either.
+
+The engine is told every repository name, checkout path, and default branch in the Job
+prompt. Code search, edits, tests, commits, and branch push happen through the local
+checkout. Opening the pull request remains a call to the official GitHub MCP server's
+`create_pull_request`, so it carries the exact linked MCP audit record.
+
 ### GitHub through `mcp.json`
 
 ```json
@@ -228,12 +246,14 @@ configuration. This duplication is intentional defence-in-depth, not a second co
 implementation. Git checkout and push remain ordinary local `git`; GitHub metadata, issues,
 reviews, and pull-request creation use MCP.
 
-The included checkout-hook installer is stdin-driven. It judges the remote destination ref
-and actual commit ancestry, so `HEAD:main` and a forced `+refspec` cannot evade it. It blocks
-the default branch, non-fast-forwards, and remote deletions while allowing ordinary
-feature-branch pushes. Build/12 wires it into the checkout lifecycle; until then the wrapper
-does not create checkouts. This is accident protection, not the action boundary; branch
-protection is the boundary.
+The checkout hook is stdin-driven. It judges the remote destination ref and actual commit
+ancestry, so `HEAD:main` and a forced `+refspec` cannot evade it. It blocks the default
+branch, non-fast-forwards, and remote deletions while allowing ordinary feature-branch
+pushes. This is accident protection, not the action boundary; `--no-verify` can bypass it,
+and that escape means force-replacing the coworker's own feature branch remains technically
+possible. That residual power is accepted because losing such a branch costs a redo. The
+operating manual still tells the coworker not to bypass the hook or rewrite shared history.
+Server-side branch protection is the boundary for the default branch.
 
 ## Version reporting
 

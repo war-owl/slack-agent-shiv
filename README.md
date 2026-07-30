@@ -12,7 +12,8 @@ bounds ([build/05](.scratch/slack-coworker/build/05-bounds-and-failure.md)),
 a queue ([build/06](.scratch/slack-coworker/build/06-queue-at-turn-boundary.md)),
 the Vault ([build/07](.scratch/slack-coworker/build/07-the-vault.md)),
 Skills ([build/15](.scratch/slack-coworker/build/15-skills.md)),
-and preflight ([build/08](.scratch/slack-coworker/build/08-preflight.md)):
+preflight ([build/08](.scratch/slack-coworker/build/08-preflight.md)), and local repository
+work ([build/12](.scratch/slack-coworker/build/12-git-checkout-and-pull-request.md)):
 a mention goes in, one message keeps you posted on the plan and the step it is on, every
 action it takes out in the world is appended to the thread permanently, and an answer
 comes back into the same thread — where a follow-up days later resumes the same
@@ -34,6 +35,11 @@ Configured GitHub repositories are also checked for the server-side default-bran
 boundary. Missing protection warns and continues, distinguishing a fixable missing rule
 from protection unavailable on the current GitHub plan. A checkout-local `pre-push` hook
 blocks default-branch pushes, non-fast-forwards, and deletions as defence-in-depth.
+Each Thread gets its own persistent checkout of those repositories before its Job starts,
+using the GitHub connector's fine-grained token through a credential helper rather than in
+the remote URL. Git owns local search, tests, commits, and feature-branch push; GitHub's
+official MCP server owns pull-request creation, and both actions land in the Thread's audit
+record.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in

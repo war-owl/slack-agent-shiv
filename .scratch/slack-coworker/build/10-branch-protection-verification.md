@@ -22,7 +22,7 @@ bypass MCP entirely, but it is again the third of three layers.
 - [x] Because startup is permitted without layer 3, the remaining guardrails are present:
   the MCP deny-list, the `pre-push` hook below, and the git-safety policy in `AGENTS.md`
 - [x] Documentation states plainly that **the layer-2 substitutes are weaker than what they replace.** A deny-listed tool did not exist; a Skill that says "do not merge" is a sentence the model may disregard and a compromised issue comment may argue against. This is the most-weakened point in the whole action boundary and should be named as such rather than buried in a list
-- [ ] A repo-managed `pre-push` hook is installed on every checkout the wrapper creates, blocking pushes to the default branch, non-fast-forwards, and remote deletions — **stdin-driven**, judging the destination ref and `git merge-base --is-ancestor`, never the command line. See [`research/local-git-enforcement.md`](../research/local-git-enforcement.md) for the tested script and the two ways the obvious version fails. **The installer and real-git matrix ship here; build/12 owns calling it for each checkout it creates.**
+- [x] A repo-managed `pre-push` hook is installed on every checkout the wrapper creates, blocking pushes to the default branch, non-fast-forwards, and remote deletions — **stdin-driven**, judging the destination ref and `git merge-base --is-ancestor`, never the command line. See [`research/local-git-enforcement.md`](../research/local-git-enforcement.md) for the tested script and the two ways the obvious version fails. **The installer and real-git matrix ship here; build/12 owns calling it for each checkout it creates.**
 - [x] Documentation states plainly that the hook is **defence-in-depth, not a boundary** — `--no-verify`, `core.hooksPath`, an editable hook file under `workspace-write`, and `curl` to the merge endpoint all bypass it
 - [x] Verified against a real repository: an attempt to merge to the protected default branch with the coworker's own token fails
 - [x] Documentation states plainly that **Linear has no equivalent third layer** and runs
@@ -41,9 +41,9 @@ from ordinary authorization failures: only the former degrades to a warning.
 
 The hook installer writes an executable checkout-local hook and sets `core.hooksPath`.
 A real bare-remote test covers `HEAD:main`, a `+refspec` non-fast-forward, deletion, and
-ordinary new/fast-forward feature pushes. It is intentionally not invoked yet because the
-wrapper does not create checkouts until build/12; that ticket owns the single remaining
-criterion rather than this layer inventing a second checkout lifecycle.
+ordinary new/fast-forward feature pushes. Build/12 now invokes it for every per-Thread
+checkout and re-imposes it before every Job rather than trusting a file the previous Job
+could edit.
 
 Live read-only verification against `shivsarthak/slack-agent` found `main` unprotected and
 named all three missing requirements. The historical destructive verification remains Check
