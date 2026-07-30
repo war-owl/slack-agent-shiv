@@ -30,9 +30,9 @@ GitHub metadata, issues, reviews, and pull-request creation**. Skills remain use
 systems without an MCP server but are not a parallel connector architecture. Linear needs
 no connector-specific build: its configured MCP server already travels through the generic
 configuration, preflight, deny-list, and audit path. The connector and repository
-sequence **08 → 09 → {10, 12}** is built. Builds 14 and 16 are implemented in code;
-activating `files:read` and `files:write` on our Slack app and exercising them live is the
-remaining workspace operation.
+sequence **08 → 09 → {10, 12}** is built. Builds 14 and 16 are implemented in code, and
+our Slack app already has `files:read` and `files:write`. Exercising both directions live
+is the remaining workspace verification.
 
 **Build/04 left one thing unfinished on purpose, and moved it rather than solving it twice.** Write records are classified from the engine's event stream, which sees file changes and MCP tool calls exactly and shell commands only by pattern — so a Note written with `cp` or `rm` leaves no record. [`build/07`](build/07-the-vault.md) gained a criterion for it, because echoing Note diffs needs a before-and-after snapshot of the Vault anyway, and a snapshot that can diff can also catch what nothing recorded. Measuring the engine first also reshaped the ticket twice: shell calls arrive as `/bin/zsh -lc "…"` with whole `&&` chains in one item, so one command can produce several records — and a chain's exit code cannot say *which* part of it failed, which is why a record states what is known rather than claiming an attempt failed. **Amended 2026-07-30:** every completed MCP call is now recorded, including reads; the per-server write list was removed so upstream additions cannot create silent audit gaps.
 

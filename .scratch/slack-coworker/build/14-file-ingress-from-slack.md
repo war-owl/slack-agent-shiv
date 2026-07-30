@@ -23,7 +23,7 @@ the app in our workspace; record the measured scope in
 
 ## Acceptance criteria
 
-- [ ] Our Slack app requests the scope(s) established above and the required configuration
+- [x] Our Slack app requests the scope(s) established above and the required configuration
   is recorded with this ticket
 - [x] A mention carrying one or more files produces a Job in which those files are present in the sandbox workspace before the engine starts
 - [x] Download uses the **authenticated** private-download URL with the bot token as a bearer header
@@ -55,9 +55,9 @@ downloads use the bot token, and both `Content-Type: text/html` and HTML magic b
 Slack's sign-in-page response.
 
 The app-event shape, `files:read` requirement, and private download URL are confirmed by
-Slack's current official docs and SDK types. A live workspace reinstall and Socket Mode
-delivery check remain external verification, so the first acceptance item stays open.
-Images remain unsupported until a real headless Codex run proves it can read them.
+Slack's current official docs and SDK types. Our installed app already has `files:read`;
+a live Socket Mode delivery check remains external verification. Images remain unsupported
+until a real headless Codex run proves it can read them.
 
 Inputs persist with the per-Thread workspace. There is no automatic deletion; removing
 that workspace is the retention control.

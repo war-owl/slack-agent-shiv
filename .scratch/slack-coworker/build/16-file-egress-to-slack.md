@@ -39,8 +39,8 @@ inside it are uploaded with Slack's v2 flow before the final answer; directories
 symlinks are ignored, and files over the configured ceiling fail before the upload call.
 Each successful file is followed by a receipt linked to Slack's permalink when available.
 
-The code and tests are complete. Applying `files:write` to our Slack app and exercising a
-real upload remain workspace operations.
+The code and tests are complete, and our installed Slack app already has `files:write`.
+Exercising a real upload remains workspace verification.
 
 **Review-hardened 2026-07-30.** The upload boundary tolerates an output directory removed
 by the agent without losing the final Thread response or blocking the next queued Job.

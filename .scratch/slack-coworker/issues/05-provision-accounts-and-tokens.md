@@ -82,7 +82,9 @@ The GitHub hosted MCP server also accepts the `gh` OAuth token. It exposed **44 
 
 - ~~A **classic GitHub PAT**~~ — **done.** Issued with exactly `repo` (verified: `x-oauth-scopes: repo`), withholding `delete_repo`, `admin:org`, and `workflow`.
 - ~~**Checks A and B**~~ — **both run.** See [the answer below](#answer--checks-a-and-b). A passes; **B fails**, and the failure is load-bearing.
-- A **Slack test workspace and app** — tokens are now present in the local `.env` (`SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`); the end-to-end install is unverified until `build/01` runs.
+- A **Slack test workspace and app** — tokens are present in the local `.env`
+  (`SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`) and the installed app has `files:read` and
+  `files:write`. Live end-to-end file ingress and egress remain unverified.
 - The **org-approval trap** — untested; needs the classic PAT against an org repo.
 - **Withheld-`workflow` behaviour** — untested; needs a push touching a workflow file.
 - ~~**Withheld-`delete_repo` behaviour**~~ — **verified.** `DELETE /repos/{o}/{r}` on a repo the user owns and administers returned **403**. The scope exclusion does real work. **Trap worth documenting:** the error message is `"Must have admin rights to Repository"`, which misattributes the cause — the user *is* an admin; the *token* lacks the scope. A self-hoster debugging this will look at repository permissions and find nothing wrong.
