@@ -101,12 +101,11 @@ How it landed:
 Writes to the human's own Vault, none recorded. The pattern table only recognises what it
 was told to look for, and lengthening it does not fix the shape of the problem.
 
-**Build/07 should close it, and needs to anyway.** Echoing a Note's diff into the Thread
-requires knowing the Vault's contents before and after a Job, and a snapshot that can
-produce a diff can also answer "did anything change that nothing recorded?" — which closes
-this at the filesystem level rather than by guessing at command strings. That is a
-stronger guarantee than this ticket could have built, and it is the reason not to invent a
-second mechanism here.
+**Build/07 closed it.** Knowing the Vault's contents before and after a Job lets a snapshot
+produce the diff and answer "did anything change that nothing recorded?" at the filesystem
+level rather than by guessing at command strings. **Amended 2026-07-30:** those Note diffs
+now go to the server Vault log rather than the Slack Thread; external Write receipts remain
+in Slack.
 
 ### Left for later tickets, deliberately
 

@@ -80,11 +80,23 @@ What a Job says about itself while it is still running: the coworker's own plan,
 
 The counterpart to a [Write](#write), and deliberately its opposite in every respect. Progress is provisional and gets overwritten; a Write is final and never does. Confusing the two loses the audit record, which is why they are separate words.
 
+## Vault change
+
+A creation, edit, or deletion inside the Vault's Notes. It is durable memory bookkeeping,
+not part of the human conversation: its full diff belongs in the server's Vault log rather
+than in the Thread.
+
 ## Write
 
-An action the coworker takes against something outside itself: opening a pull request, updating a ticket, posting a comment. Distinguished from reading because the coworker acts unattended, so every Write is appended to its Thread as a permanent record.
+An action the coworker takes against an external system or the Thread itself: opening a
+pull request, updating a ticket, posting a comment, or sharing a result file. Distinguished
+from reading because the coworker acts unattended, so every Write is appended to its Thread
+as a permanent record.
 
-**The Job's workspace is part of "itself".** A scratch script the coworker writes to answer a question changed nothing anyone else owns, and reporting it would be narration; a Note in the [Vault](#vault) is the human's, and is a Write. The line is what the coworker was given versus what it went out and touched.
+**The Job's workspace is part of "itself".** A scratch script the coworker writes to answer
+a question changed nothing anyone else owns, and reporting it would be narration. A
+[Vault change](#vault-change) has its own operational record and is not a conversational
+Write.
 
 **MCP calls are conservatively over-recorded.** The engine event does not carry portable,
 trustworthy read/write metadata, so every completed MCP call uses the same permanent audit

@@ -15,11 +15,23 @@ import { BOT_USER_ID, coworkerHarness, DEFAULT_THREAD_TS } from "./support/harne
  * ADR-0003's whole promise is that the same directory opens in Obsidian; an in-memory
  * filesystem would let frontmatter and wikilink bugs pass a test that real files catch.
  *
- * A Job's Thread reads: the status message, a record per Write, then the answer. So the
- * records are the messages between the first and the last.
+ * External Writes still produce Thread receipts. Vault changes are deliberately quieter:
+ * their full diffs belong in the server log, not between the human conversation's messages.
  */
-function recordsIn(texts: string[]): string[] {
-  return texts.slice(1, -1);
+interface LoggedVaultChange {
+  action: string;
+  subject: string;
+  thread: string;
+  job: string;
+  detail?: string;
+  diff?: string;
+}
+
+async function vaultChangesIn(filePath: string): Promise<LoggedVaultChange[]> {
+  return (await readFile(filePath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as LoggedVaultChange);
 }
 
 /** Every file in the Vault, relative and sorted — what a human would see in Obsidian. */
@@ -32,7 +44,7 @@ async function notesIn(notesDir: string): Promise<string[]> {
 }
 
 describe("a Note the coworker writes", () => {
-  it("echoes its diff into the Thread, so a belief can be caught and corrected", async () => {
+  it("logs its diff on the server without posting the Note into the Thread", async () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
       await writeFile(
@@ -45,14 +57,16 @@ describe("a Note the coworker writes", () => {
 
     await h.mention();
 
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(record).toMatch(/created a note/i);
-    expect(record).toContain("Deploys.md");
-    // What it now says, not merely that it changed. This is the control ticket 10 chose
-    // over gating: a poisoning attempt is visible where the human is already reading.
-    expect(record).toContain("+ We ship on green.");
-    // Wikilinks survive verbatim into the Thread — they are structure, not decoration.
-    expect(record).toContain("[[Atlas]]");
+    const thread = h.slack.textsIn(DEFAULT_THREAD_TS);
+    expect(thread).toHaveLength(2);
+    expect(thread.join("\n")).not.toContain("Deploys.md");
+    expect(thread.join("\n")).not.toContain("[[Atlas]]");
+
+    const [logged] = await vaultChangesIn(h.vaultChangeLogPath);
+    expect(logged?.action).toMatch(/created a note/i);
+    expect(logged?.subject).toBe("Deploys.md");
+    expect(logged?.diff).toContain("+ We ship on green.");
+    expect(logged?.diff).toContain("[[Atlas]]");
   });
 
   it("is recorded even when the engine never reported writing it", async () => {
@@ -75,10 +89,10 @@ describe("a Note the coworker writes", () => {
 
     await h.mention();
 
-    const records = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(records).toHaveLength(1);
-    expect(records[0]).toContain("Runbook.md");
-    expect(records[0]).toContain("+ Restart the worker.");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
+    const [logged] = await vaultChangesIn(h.vaultChangeLogPath);
+    expect(logged?.subject).toBe("Runbook.md");
+    expect(logged?.diff).toContain("+ Restart the worker.");
   });
 
   it("records when it was written and which Thread and Job wrote it", async () => {
@@ -119,11 +133,11 @@ describe("a Note the coworker writes", () => {
     // appended under a heading, so divergence surfaces to whoever reads the Vault.
     expect(note).toContain("We ship on green.");
     expect(note).not.toContain("We ship on Fridays.");
-    // And the rewrite is visible as a rewrite.
-    const record = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS)).at(-1);
-    expect(record).toMatch(/edited a note/i);
-    expect(record).toContain("- We ship on Fridays.");
-    expect(record).toContain("+ We ship on green.");
+    // And the rewrite is visible as a rewrite in the server-side Vault log.
+    const record = (await vaultChangesIn(h.vaultChangeLogPath)).at(-1);
+    expect(record?.action).toMatch(/edited a note/i);
+    expect(record?.diff).toContain("- We ship on Fridays.");
+    expect(record?.diff).toContain("+ We ship on green.");
   });
 
   it("leaves a Note a human edited by hand exactly as they left it", async () => {
@@ -149,9 +163,10 @@ describe("a Note the coworker writes", () => {
 
     await h.mention();
 
-    const [record] = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(record).toMatch(/deleted a note/i);
-    expect(record).toContain("- Asha owns billing.");
+    const [record] = await vaultChangesIn(h.vaultChangeLogPath);
+    expect(record?.action).toMatch(/deleted a note/i);
+    expect(record?.diff).toContain("- Asha owns billing.");
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
     expect(await notesIn(h.notesDir)).toEqual([]);
   });
 
@@ -184,11 +199,14 @@ describe("a Note the coworker writes", () => {
     // One Vault, two Jobs, and nothing in the filesystem says which of them wrote the
     // file. So the record says so rather than asserting an author, and the frontmatter is
     // left without one — an absent field reads as unknown where a wrong one reads as fact.
-    const hedged = h.slack
-      .textsIn(DEFAULT_THREAD_TS)
-      .filter((text) => text.includes("Shared.md"));
+    const hedged = (await vaultChangesIn(h.vaultChangeLogPath)).filter(
+      (record) =>
+        record.subject === "Shared.md" &&
+        record.thread === `C_GENERAL/${DEFAULT_THREAD_TS}`,
+    );
     expect(hedged).toHaveLength(1);
-    expect(hedged[0]).toMatch(/may be its change/);
+    expect(hedged[0]?.detail).toMatch(/may be its change/);
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS).join("\n")).not.toContain("Shared.md");
     const note = await readFile(path.join(h.notesDir, "Shared.md"), "utf8");
     expect(note).toContain("modified:");
     expect(note).not.toContain("job:");
@@ -353,7 +371,7 @@ describe("the Librarian's closing pass", () => {
     expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toHaveLength(2);
   });
 
-  it("files exactly one Note for a Job that did, and echoes it", async () => {
+  it("files exactly one Note for a Job that did and logs it off-Thread", async () => {
     const h = await coworkerHarness();
     h.engine.script = () => [{ type: "message", text: "Deploys go out from main, on green." }];
     h.engine.librarianScript = filesANote(
@@ -366,13 +384,14 @@ describe("the Librarian's closing pass", () => {
 
     expect(await notesIn(h.notesDir)).toEqual(["Deploys.md"]);
     const texts = h.slack.textsIn(DEFAULT_THREAD_TS);
-    expect(texts).toHaveLength(3);
+    expect(texts).toHaveLength(2);
     // The answer goes out *before* the tidying up, so nobody waits on curation — a pass
     // that takes five minutes must not hold up an answer that already exists.
     expect(texts[1]).toBe("Deploys go out from main, on green.");
-    // And the Note it filed is recorded after the answer, which is also when it happened.
-    expect(texts[2]).toContain("Deploys.md");
-    expect(texts[2]).toContain("+ Deploys go out from main, on green.");
+    // And the Note it filed is recorded outside the conversation.
+    const [logged] = await vaultChangesIn(h.vaultChangeLogPath);
+    expect(logged?.subject).toBe("Deploys.md");
+    expect(logged?.diff).toContain("+ Deploys go out from main, on green.");
     // The pass's own words never reach the Thread — the Note and its diff are what it has
     // to say, and a second voice reporting on the filing would be noise.
     expect(texts.join("\n")).not.toContain("Filed Deploys.md");

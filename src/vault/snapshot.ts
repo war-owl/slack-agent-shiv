@@ -14,13 +14,12 @@ import path from "node:path";
  *
  * Asking the filesystem does. A snapshot before and after answers both questions at
  * once: **what changed**, whatever tool changed it, and **what it changed to**, which is
- * the diff the Thread needs to echo. Nothing can hide from it, because nothing is being
+ * the diff the server log needs to retain. Nothing can hide from it, because nothing is being
  * inferred — the Vault either has different bytes in it afterwards or it does not.
  *
- * The cost is that a Vault record cannot be posted the moment it happens: a diff exists
- * only once the Job is over. That is why Vault records land as a block at the end of a
- * Job, and it is the right trade — a record that arrives with the diff in it is worth
- * more than a record that arrives sooner saying only that a file was touched.
+ * A Vault record cannot be appended until a settlement point because its diff only exists
+ * after the work or Librarian pass. Full content is more useful than an earlier record
+ * saying only that a file was touched.
  */
 
 /**
@@ -38,7 +37,7 @@ export const NOT_CONTENT = new Set([".git", ".obsidian", ".trash", "node_modules
  *
  * A Note is prose and nowhere near this. Something in the Vault that is larger is data
  * the coworker was given rather than something it believes, and holding two copies of it
- * in memory to diff a Slack message is the wrong use of the machine — so its change is
+ * in memory to build a diff is the wrong use of the machine — so its change is
  * still recorded, just without a diff body.
  */
 const MAX_DIFFED_BYTES = 256 * 1024;
@@ -53,7 +52,7 @@ const DIFF_MAX_CHARS = 1_400;
  * The point past which diffing two files is not worth the arithmetic.
  *
  * The line matcher is quadratic in the number of changed lines. For Notes that is
- * nothing; for a large generated file it is a Job stalling on a Slack message, so past
+ * nothing; for a large generated file it is a Job stalling on bookkeeping, so past
  * this the diff degrades to "all of it went, all of this arrived" rather than getting
  * cleverer.
  */
@@ -203,7 +202,7 @@ async function pointsAtAFile(link: string): Promise<boolean> {
 async function stateOf(file: string): Promise<FileState> {
   try {
     // Sized before it is read. A Vault may have a dataset dropped in it, and reading
-    // that three times a Job to diff a Slack message is the wrong use of the machine.
+    // that three times a Job to build a change-log diff is the wrong use of the machine.
     const info = await stat(file);
     if (info.size > MAX_DIFFED_BYTES) {
       return { text: undefined, bytes: info.size, mark: `${info.size}:${info.mtimeMs}` };

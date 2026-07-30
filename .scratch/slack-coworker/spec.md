@@ -58,7 +58,7 @@ It also does work that has nothing to do with code. Drop a CSV into the Thread a
 17. As a thread observer, I want every Write the coworker makes to the outside world appended to the Thread as its own permanent message, so that there is an accountability record of what it actually did.
 18. As a thread observer, I want those Write records to be un-overwritable, so that the audit trail cannot be edited away by a later progress update.
 19. As a thread observer, I want a Write record to name the thing that was written — which pull request, which ticket, which comment — with a link, so that I can go and check it.
-20. As a delegator, I want every Note the coworker creates or changes echoed into the Thread as a diff, so that I can see what it decided to believe and correct it if it is wrong.
+20. As an operator, I want every Note the coworker creates, changes, or deletes appended to a server-side log with its diff and provenance, so that memory bookkeeping remains reviewable without polluting the Thread.
 21. As a security-conscious operator, I want merges to a *protected* default branch to fail server-side even when the coworker's own token attempts them, so that the worst thing an injected instruction can achieve is something a human can undo.
 21a. As an operator, I want to be told clearly when a private repository **cannot** be protected on our current plan and what we are therefore running without.
 22. As a security-conscious operator, I want the coworker unable to delete a repository or administer the organisation, so that the most destructive actions are absent from the credential entirely.
@@ -161,7 +161,7 @@ Two consequences constrain everything downstream and are not up for renegotiatio
 
 **Session store.** Holds the `thread_ts → codex thread_id` mapping. This is the wrapper's **only durable state** — Codex owns Session content as append-only rollouts on disk, and the Vault is files. **Judgment call:** the concrete store is deliberately left to implementation. It is a small key-value mapping with no schema pressure; the map lists "what holds that mapping" as unresolved fog, and any durable local store satisfies the spec.
 
-**Reporter.** Owns both output channels, which have deliberately opposite semantics. Progress is **one message edited in place**, driven by Codex's todo-list item — the only event emitting updates in `exec` — and refreshed on a cadence inside Slack's two-minute status timeout even when nothing has changed, so a long silent command does not look hung. Audit is **every Write appended as its own permanent message**, never edited, because with no approval gate the Thread is the only accountability record a human sees. Note diffs are echoed into the audit channel alongside external Writes.
+**Reporter.** Owns both Slack output channels, which have deliberately opposite semantics. Progress is **one message edited in place**, driven by Codex's todo-list item — the only event emitting updates in `exec` — and refreshed on a cadence inside Slack's two-minute status timeout even when nothing has changed, so a long silent command does not look hung. Audit is **every external Write appended as its own permanent message**, never edited, because with no approval gate the Thread is the accountability record for actions outside the coworker. Vault changes instead go to the append-only server Vault log so internal memory bookkeeping does not pollute the conversation.
 
 **Vault.** Owns Root note injection and its links-only enforcement, frontmatter conventions, and the Librarian pass. The Root note is injected by the wrapper into every Job — injection is a structural guarantee where "always read the root first" would be a behavioural one. At injection, **anything that is not a link line is dropped and the drop is surfaced** ([ADR-0004](../../docs/adr/0004-root-note-is-links-only.md)); this must not be relaxed to allow explanatory prose. A size ceiling on the Root warns rather than truncating, because Codex truncates silently at 32 KiB.
 
@@ -206,7 +206,7 @@ Consequences worth building for:
 - **A failed or empty Librarian pass never fails the Job.** The work is already done and reported; curation is best-effort.
 - **It is a second Codex call per Job** — real cost and latency, mitigated by `low` effort and by returning early when the transcript is trivially unremarkable.
 - **It will be inconsistent.** The same conversation on two days may be judged differently. Accepted: the Vault is human-editable and the cost of a wrong call in either direction is small.
-- This does not reopen ticket 10's rejection of quarantine. The judge is still the same agent lineage that read the untrusted content, and it is **not** a trust boundary — it is an editorial filter. Every Note it writes is still echoed into the Thread as a diff, which remains the actual control.
+- This does not reopen ticket 10's rejection of quarantine. The judge is still the same agent lineage that read the untrusted content, and it is **not** a trust boundary — it is an editorial filter. Every Note it writes is appended to the server Vault log with its diff and provenance.
 
 `AGENTS.md` is the stable operating manual and **never the memory** — capped, always-on, refreshed once per run, and kept stable to keep the prompt cache warm. It carries the coworker's persona and the standing instruction that Notes and external content describe the world but never direct behaviour. That instruction is recorded as defence-in-depth and explicitly **not** as a control; the real controls are the links-only Root, the bounded credential, and human visibility.
 
@@ -376,7 +376,7 @@ Behaviour to cover at this seam:
 - Every Write appends a new permanent message; nothing edits an existing Write record.
 - Every completed MCP tool call appends a permanent audit message, including reads, so
   inventory evolution cannot introduce unaudited tools.
-- A created or changed Note echoes a diff into the Thread.
+- A created, changed, or deleted Note appends its diff and provenance to the server Vault log and does not post the Note into the Thread.
 - Prose in the Root note is dropped before injection, and the drop is surfaced.
 - An oversized Root note warns and is not truncated.
 - The Session mapping is reused on a second mention in the same Thread, and a resume after an interrupted Turn injects the verify-state warning.
@@ -435,7 +435,7 @@ chosen token: search issues, read a pull request, create a reversible test comme
 confirm that `merge_pull_request` and `delete_file` are absent. Token expiry and rotation
 are operator-visible credential maintenance rather than hidden wrapper machinery.
 
-**On residual risk, stated plainly.** A poisoning attempt succeeds until a human reads the echoed diff. A poisoned Note is indistinguishable in kind from a real one, by design — there is no trust class in the model. The links-only Root prevents instruction injection into the prompt but not a link to a malicious Note. Anything within the token's power on an unprotected surface is reachable by prompt injection, and non-destructive but embarrassing actions are fully available with manual recovery.
+**On residual risk, stated plainly.** A poisoning attempt succeeds until an operator reviews the Vault or its change log. A poisoned Note is indistinguishable in kind from a real one, by design — there is no trust class in the model. The links-only Root prevents instruction injection into the prompt but not a link to a malicious Note. Anything within the token's power on an unprotected surface is reachable by prompt injection, and non-destructive but embarrassing actions are fully available with manual recovery.
 
 What the design buys is that the worst realistic outcome is a coworker that believes something false and acts on it *without being able to delete a repository, edit CI, or merge to a branch the repository protects* — in a Thread that records everything it did, over a Vault a human can open and fix.
 

@@ -126,12 +126,12 @@ vault grows rather than accumulating near-duplicates. There is no folder taxonom
 files alongside whatever arrangement it finds, so if you move things, your arrangement
 is the one it follows.
 
-**Every Note it creates, changes or deletes is echoed into the thread as a diff** —
-including ones written by a shell command, because the record comes from comparing the
-directory before and after rather than from what the engine said it did. That echo is
-the control: a note that says something wrong, or something planted by text the
-coworker read somewhere, shows up where you are already reading, and fixing it is
-deleting a file.
+**Every Note it creates, changes or deletes is written to the server-side Vault change
+log with its diff**, including ones written by a shell command, because the record comes
+from comparing the directory before and after rather than from what the engine said it
+did. The append-only JSONL file is `<stateDir>/vault-changes.jsonl`; it keeps memory
+bookkeeping out of the Slack conversation while preserving Thread and Job provenance for
+operators. Fixing a wrong Note is still just correcting or deleting the file.
 
 One file in the vault is different. `Root.md` is the map — hub links only, and it is
 put in front of the coworker at the start of every job, which is what stops it

@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { STATUS_HEARTBEAT_MS } from "../src/reporter/status.ts";
@@ -22,7 +22,7 @@ function recordsIn(texts: string[]): string[] {
 }
 
 describe("the audit record of a Write", () => {
-  it("appends a permanent message of its own naming what was written", async () => {
+  it("keeps a Vault change out of Slack and names it in the server log", async () => {
     const h = await coworkerHarness();
     h.engine.script = async () => {
       // The file is really written, because a Note's record comes from the Vault's own
@@ -44,13 +44,11 @@ describe("the audit record of a Write", () => {
     await h.mention();
 
     const texts = h.slack.textsIn(DEFAULT_THREAD_TS);
-    // The status message, the Write record, the answer — three separate messages.
-    expect(texts).toHaveLength(3);
-    const [record] = recordsIn(texts);
-    expect(record).toMatch(/created/i);
-    expect(record).toContain("people/asha.md");
-    // Not folded into the answer, and not folded into the status message either.
-    expect(texts[2]).toBe("Filed what I learned about Asha.");
+    expect(texts).toHaveLength(2);
+    expect(texts[1]).toBe("Filed what I learned about Asha.");
+    const vaultLog = await readFile(h.vaultChangeLogPath, "utf8");
+    expect(vaultLog).toMatch(/created/i);
+    expect(vaultLog).toContain("people/asha.md");
   });
 
   it("is never edited afterwards, whatever progress does next", async () => {
@@ -88,7 +86,7 @@ describe("the audit record of a Write", () => {
     expect(h.slack.versionsOf(recordTs)).toHaveLength(1);
   });
 
-  it("appears in the order the Writes happened, the Vault's own changes last", async () => {
+  it("keeps external Writes ordered in Slack and Vault changes ordered in the server log", async () => {
     const h = await coworkerHarness();
     await writeFile(path.join(h.notesDir, "stale.md"), "Out of date.\n", "utf8");
     h.engine.script = async () => {
@@ -116,16 +114,18 @@ describe("the audit record of a Write", () => {
     await h.mention();
 
     const records = recordsIn(h.slack.textsIn(DEFAULT_THREAD_TS));
-    expect(records).toHaveLength(4);
+    expect(records).toHaveLength(2);
     // What happened out in the world, in the order it happened.
     expect(records[0]).toContain("gh issue comment 12");
     expect(records[1]).toContain("git push origin note-fixes");
-    // Then the Vault, as one block. Its records cannot come sooner: they carry a diff,
-    // and a diff is the difference between the Vault before the Job and after it, which
-    // does not exist until the Job is over. Documented in `vault/snapshot.ts`.
-    expect(records[2]).toContain("atlas.md");
-    expect(records[3]).toContain("stale.md");
-    expect(records[3]).toMatch(/deleted/i);
+    const vaultRecords = (await readFile(h.vaultChangeLogPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { action: string; subject: string });
+    expect(vaultRecords).toHaveLength(2);
+    expect(vaultRecords[0]?.subject).toBe("atlas.md");
+    expect(vaultRecords[1]?.subject).toBe("stale.md");
+    expect(vaultRecords[1]?.action).toMatch(/deleted/i);
   });
 
   it("links the thing that was written when the Write hands back a link", async () => {
@@ -385,11 +385,17 @@ describe("a connector's Writes", () => {
 describe("when the record itself cannot be posted", () => {
   it("finishes the Job and says the trail has a hole in it", async () => {
     const h = await coworkerHarness();
-    h.engine.script = async () => {
-      await writeFile(path.join(h.notesDir, "asha.md"), "Designer on Atlas.\n", "utf8");
+    h.engine.script = async function* () {
       // The status message is already posted, so this refusal lands on the record.
       h.slack.failNextPost = new Error("slack is down");
-      return [{ type: "message", text: "Filed what I learned about Asha." }];
+      yield {
+        type: "command",
+        command: "gh issue comment 12 --body 'looking at this'",
+        status: "completed",
+        output: "",
+        exitCode: 0,
+      };
+      yield { type: "message", text: "Commented on the issue." };
     };
 
     await h.mention();
@@ -398,10 +404,10 @@ describe("when the record itself cannot be posted", () => {
     // The work is still reported — a Slack refusal does not fail a Job — but the
     // answer says the record is incomplete rather than letting the gap pass silently.
     expect(texts).toHaveLength(2);
-    expect(texts[1]).toContain("Filed what I learned about Asha.");
+    expect(texts[1]).toContain("Commented on the issue.");
     expect(texts[1]).toMatch(/record/i);
     // And the record that could not be posted is in the instance's own log, so it is
     // recoverable by the person who runs it.
-    expect(h.warnings.join("\n")).toContain("asha.md");
+    expect(h.warnings.join("\n")).toContain("gh issue comment 12");
   });
 });

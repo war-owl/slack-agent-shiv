@@ -6,8 +6,8 @@ import type { EngineEvent, FileChange } from "../ports/engine.ts";
  * What counts as a Write, and what to call it.
  *
  * A Write is an action the coworker takes against something outside itself: opening a
- * pull request, updating a ticket, writing a Note the human owns. The coworker acts
- * unattended, so each one is appended to its Thread as a permanent record — which
+ * pull request, updating a ticket, or uploading a result. The coworker acts
+ * unattended, so each external one is appended to its Thread as a permanent record — which
  * makes "is this a Write?" a question with consequences, and this module is where it
  * is answered.
  *
@@ -15,9 +15,9 @@ import type { EngineEvent, FileChange } from "../ports/engine.ts";
  *
  * - **A file change.** Known exactly: the Job's workspace is the coworker's own desk
  *   and changes inside it are Progress, while anything it writes *outside* the
- *   workspace has left itself. **The Vault is the exception, and it is answered for
- *   better elsewhere** — `vault/snapshot.ts` reads the directory itself, so it catches
- *   what no event mentions and can show what the Note now says.
+ *   workspace has left itself. **The Vault is the exception, and it is recorded
+ *   separately elsewhere** — `vault/snapshot.ts` reads the directory itself and the
+ *   result goes to the server-side Vault change log, not the Thread.
  * - **An MCP tool call.** Every completed call is recorded. The wrapper is not in the
  *   tool path (ADR-0005), and the engine event does not carry trustworthy read/write
  *   metadata. Recording all calls is deliberately forgiving: new tools are audited
@@ -59,15 +59,6 @@ export interface Write {
    * and a trail that only shows successes is the wrong half of the story.
    */
   failure?: string | undefined;
-  /**
-   * What changed, as `+`/`-` lines — for the Writes where the content *is* the point.
-   *
-   * Only a Note carries one today. "Edited a Note" names a file; what a human needs in
-   * order to catch a belief they disagree with is what it now says, which is why ticket
-   * 10 made the echoed diff the actual control over Vault poisoning rather than a nicety.
-   * It comes from `vault/snapshot.ts`, not from anything in this module.
-   */
-  diff?: string | undefined;
 }
 
 /** One directory, under every name it answers to. */
@@ -81,7 +72,7 @@ interface ScopedDirectory {
 export interface WriteScope {
   /** This Job's workspace. Changes inside it are the coworker's own desk, not Writes. */
   workspace: ScopedDirectory;
-  /** The Vault, so a Note is recorded as a Note rather than as a path. */
+  /** The Vault, so engine file events are ignored and its snapshot owns the record. */
   vault: ScopedDirectory;
 }
 

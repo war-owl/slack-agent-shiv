@@ -27,9 +27,9 @@ Resolution states the write policy and the trust model, and names what is delibe
 
 Two decisions, plus consequences that follow from earlier tickets. The posture is **visibility over gating for Notes, and a structural constraint on the one file that is prompt rather than data.**
 
-### 1. External content reaches the Vault freely, with provenance and an echoed diff
+### 1. External content reaches the Vault freely, with provenance and a server-log diff
 
-Notes are written regardless of source. Frontmatter already records the Thread and Job that wrote them ([ticket 06](06-note-vs-memory-domain-model.md)), and **every Note created or changed is echoed into the Thread** alongside the external Writes already echoed there ([ticket 08](08-job-model.md)). A poisoning attempt is therefore visible the moment it lands, in a channel the human is already reading.
+Notes are written regardless of source. Frontmatter records the Thread and Job that wrote them ([ticket 06](06-note-vs-memory-domain-model.md)), and **every Note created, changed, or deleted is appended with its full diff to the server Vault log**. This was moved out of Slack on 2026-07-30 because internal Note receipts polluted the conversation; external Writes still retain their Thread receipts.
 
 Rejected alternatives and why:
 
@@ -52,13 +52,13 @@ Structural rather than behavioural, and it leaves the Root an ordinary Note a hu
 ### Judgment calls recorded, not grilled
 
 - **Vault content is information, not instruction.** The system prompt in `AGENTS.md` states that Notes and external content describe the world and never direct the coworker's behaviour; only `AGENTS.md` itself and the human in the Thread do that. This is the standard defence and it is **weak** — it is a behavioural guarantee against an adversary optimising to break exactly that. Recorded as defence-in-depth, not as the control. The controls are the links-only Root, the bounded credential, and human visibility.
-- **Recovery is Obsidian.** A bad Note is a file: open the vault, delete or correct it. No tooling to build, which is a direct dividend of ADR-0003 having refused a hidden store. The echoed diffs give the trail needed to find it.
+- **Recovery is Obsidian.** A bad Note is a file: open the vault, delete or correct it. No tooling to build, which is a direct dividend of ADR-0003 having refused a hidden store. The server Vault log gives operators the trail needed to find it.
 - **No write-time detection.** Consistent with [ticket 06](06-note-vs-memory-domain-model.md) — no surveyed system detects contradictory or malicious content at write time, and inventing it is out of scope.
 
 ### Residual risk, stated
 
 - A poisoned Note is **indistinguishable in kind** from a real one — there is no trust class in the model, by design.
-- A poisoning attempt **succeeds until a human reads the echoed diff**. If nobody reads the Thread, nobody notices.
+- A poisoning attempt **succeeds until an operator reviews the Vault or its change log**.
 - The links-only Root prevents instruction injection into the prompt but **not** a link to a malicious Note; the coworker may still traverse to it and believe it.
 - The instruction/data separation is prompt-level and will not survive a determined adversary.
 

@@ -28,6 +28,19 @@ Measured against Codex 0.145.0 rather than assumed: the file-editing tool answer
 
 This is a deliberate exception to that ticket's general "visibility over gating" stance for Notes. Visibility is right for beliefs; it is not sufficient for instructions.
 
+## Amended — Vault diffs live in the server log, not the Thread
+
+The original decision used a full Note diff in the Slack Thread as the visibility control
+for ordinary Notes. In practice those receipts insert internal memory bookkeeping between
+the human messages and pollute the conversation. Note creation, edits, and deletions are
+therefore recorded in an append-only server-side Vault log instead. Provenance remains in
+Note frontmatter, while external Writes retain their permanent Thread receipts.
+
+This deliberately makes poisoning review an operator workflow rather than something every
+Thread participant sees inline. The structural controls do not change: Root prose is still
+removed before injection, Skills remain outside the agent's writable directories, and the
+credential still bounds what poisoned content can do.
+
 ## Consequences
 
 - The Root stays an ordinary Note a human can open and shape — the constraint is on grammar, not on authorship.

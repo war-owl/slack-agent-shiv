@@ -79,8 +79,8 @@ export interface LibrarianOutcome {
  * Run the closing pass. Never throws, never rejects.
  *
  * What it *did* is not returned, because the Vault is the answer: whatever the pass
- * wrote is picked up by the snapshot diff and echoed into the Thread like any other
- * Write. This function's own result is for the instance's log.
+ * wrote is picked up by the snapshot diff and appended to the Vault change log. This
+ * function's own result is for the instance's ordinary log.
  */
 export async function runLibrarianPass(
   deps: LibrarianDeps,

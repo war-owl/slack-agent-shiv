@@ -29,6 +29,11 @@ import { runPreflight } from "./preflight/run.ts";
 import { startAuditTrail, type AuditTrail } from "./reporter/audit.ts";
 import { startJobStatus, type JobStatus } from "./reporter/status.ts";
 import { threadKey, type Thread } from "./thread.ts";
+import {
+  openVaultChangeLog,
+  vaultChangeLogFile,
+  type VaultChangeLog,
+} from "./vault/change-log.ts";
 import { runLibrarianPass } from "./vault/librarian.ts";
 import { NO_ROOT_NOTE, readRootNote, rootNoteConcerns, type RootNote } from "./vault/root.ts";
 import { readSkills } from "./vault/skills.ts";
@@ -111,6 +116,11 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
    * `vault/window.ts`, which is where the consequence is spelled out.
    */
   const vaultWindows: VaultWindows = trackVaultWindows();
+  const vaultChangeLog = openVaultChangeLog({
+    filePath: vaultChangeLogFile(deps.config.stateDir),
+    clock: deps.clock,
+    log: deps.log,
+  });
 
   return {
     preflight: () => runPreflight(deps),
@@ -152,7 +162,15 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
 
       return {
         jobId: mention.eventId,
-        completed: runInTurn(deps, running, vaultWindows, place, mention, acknowledgement),
+        completed: runInTurn(
+          deps,
+          running,
+          vaultWindows,
+          vaultChangeLog,
+          place,
+          mention,
+          acknowledgement,
+        ),
       };
     },
   };
@@ -180,12 +198,13 @@ async function runInTurn(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
   vaultWindows: VaultWindows,
+  vaultChangeLog: VaultChangeLog,
   place: Place,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<void> {
   const outcome = await place.take(() =>
-    runJob(deps, running, vaultWindows, mention, acknowledgement),
+    runJob(deps, running, vaultWindows, vaultChangeLog, mention, acknowledgement),
   );
   if (outcome === "ran" || !("receipt" in acknowledgement)) return;
 
@@ -273,6 +292,7 @@ async function runJob(
   deps: CoworkerDeps,
   running: Map<string, JobBounds>,
   vaultWindows: VaultWindows,
+  vaultChangeLog: VaultChangeLog,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<void> {
@@ -526,13 +546,12 @@ async function runJob(
     );
   }
 
-  // Whatever the work did to the Vault, recorded from the Vault itself and **before the
-  // answer**, because it happened before the answer. Runs for a stopped Job too: a Note
+  // Whatever the work did to the Vault, logged from the Vault itself before the answer.
+  // Runs for a stopped Job too: a Note
   // written before the stop is still a Note, and stopping undid nothing.
-  if (vault !== undefined && audit !== undefined) await vault.settle(audit);
+  if (vault !== undefined) await vault.settle(vaultChangeLog);
 
-  // Every Write record so far lands before the answer: the Thread has to read in the order
-  // things happened, and the answer is the last word on the work.
+  // Every external Write receipt so far lands before the answer.
   await audit?.drain();
   const report: JobReport = reportFor({
     answer,
@@ -551,8 +570,7 @@ async function runJob(
   // Only now, with the answer delivered, does the coworker tidy up. Curation is
   // best-effort and takes as long as it takes, so anything the person is waiting for has
   // to be out of the way first — the spec's "the work is already done and reported" is a
-  // statement about this ordering. Whatever the pass files is recorded after the answer,
-  // which is also when it happened.
+  // statement about this ordering. Whatever the pass files is logged after the answer.
   try {
     await tidyUp(deps, mention, {
       stoppedBy,
@@ -562,7 +580,7 @@ async function runJob(
       answer,
       signal: bounds.signal,
       vault,
-      audit,
+      vaultChangeLog,
       ingestedFiles,
     });
   } finally {
@@ -608,7 +626,7 @@ async function tidyUp(
     answer: string;
     signal: AbortSignal;
     vault: VaultWindow | undefined;
-    audit: AuditTrail | undefined;
+    vaultChangeLog: VaultChangeLog;
     ingestedFiles: readonly IngestedFile[];
   },
 ): Promise<void> {
@@ -646,10 +664,9 @@ async function tidyUp(
   }
 
   // Even a pass that failed part-way may have written something, so the Vault is asked
-  // either way. A Note that exists and is unrecorded is the one outcome this must not have.
-  if (job.vault !== undefined && job.audit !== undefined) {
-    await job.vault.settle(job.audit);
-    await job.audit.drain();
+  // either way. A Note that exists and is unlogged is the one outcome this must not have.
+  if (job.vault !== undefined) {
+    await job.vault.settle(job.vaultChangeLog);
   }
 }
 

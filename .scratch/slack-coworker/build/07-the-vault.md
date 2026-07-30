@@ -13,7 +13,7 @@ There is no separate memory store. The Vault is the memory, and everything the c
 - [x] Notes are Markdown files in a configured directory, and that directory opens in Obsidian with wikilinks resolving normally
 - [x] Frontmatter on each Note records when it was last modified and which Thread and Job wrote it
 - [x] A Note is the current belief about its topic: learning something contradictory rewrites the Note in place rather than appending to a log
-- [x] A Note created or changed by the coworker echoes its diff into the Thread through the audit channel, so a poisoning attempt is visible where the human is already reading
+- [x] A Note created, changed, or deleted by the coworker appends its diff and provenance to the server Vault log without posting the Note into the Thread
 - [x] **The diff is taken from the Vault's own contents before and after the Job, not from the engine's file-change events** — and anything that changed without a record gets one. [build/04](04-audit-writes.md#the-gap-shell-writes-the-wrapper-cannot-see) records Writes from the event stream, which misses a Note written with `cp`, `echo >` or `rm`; a snapshot able to produce a diff closes that at the filesystem level, and this ticket needs the snapshot regardless
 - [x] A human's hand-edit to a Note is respected, and deleting a Note removes the belief completely — recovery needs no tooling
 
@@ -56,19 +56,18 @@ How it landed:
 - **There is one Vault and up to four concurrent Jobs, so a change is not always
   attributable — and the record now says so instead of guessing.** This was the review's
   sharpest finding and it was a real defect: a Job's before/after window spans a
-  *different* Thread's writes, so Thread A was posting Thread B's Note diffs and stamping
+  *different* Thread's writes, so Thread A could observe Thread B's Note changes and stamp
   B's Notes with A's `job:`. Nothing in the filesystem says who wrote a file. So
   `vault/window.ts` tracks which Jobs have the Vault open, and a window that overlapped
-  another marks its records "another job was writing to the Vault at the same time, so this
+  another marks its log records "another job was writing to the Vault at the same time, so this
   may be its change" and leaves `thread:`/`job:` off the frontmatter entirely — an absent
   field reads as unknown where a wrong one reads as fact. The two ways to make it
   *correct* both cost more than the problem: a Vault lock across each Job serialises the
   Jobs build/06 deliberately runs at once, and a per-Job view of the directory stops the
   Vault being one directory a human owns. **It reads like an audience leak and is not quite
-  one** — an unattributable change is recorded in every Thread whose window it fell inside,
-  but ADR-0003 already makes the Vault the one channel between Sessions with no
-  agent-private region, so any Job in that Thread could have read the Note by following a
-  link. Pinned by a test that runs two Threads at once.
+  one** — an unattributable change can be observed by every overlapping window, but it is
+  written only to the server log and never posted into another Thread. Pinned by a test
+  that runs two Threads at once.
 - **The answer is posted before the Librarian runs, and the pass's own Notes are recorded
   after it.** Also from the review, and the spec's own words settle it: "the work is
   already done **and reported**; curation is best-effort". The first version awaited the
@@ -115,7 +114,7 @@ How it landed:
 - **Provenance is stamped by the wrapper, not written by the model**, onto exactly the
   Notes that changed during the Job. Asking the coworker to write it would make the one
   field that says "this came from the coworker" the one field the coworker could forget or
-  fake. Stamping happens *before* the diff is taken, so the record in the Thread matches
+  fake. Stamping happens *before* the diff is taken, so the record in the Vault log matches
   the file a human opens, frontmatter included — and the Root note's own frontmatter is
   skipped by the links-only filter, or every Job in every Thread would have warned about
   the wrapper's own `modified:` line.
@@ -124,7 +123,7 @@ How it landed:
   the second reads as a 34-character label, and the grammar stops being something a reader
   can state in one sentence. The label is still bounded at sixty characters and that is
   still room for a short instruction — the same residual ADR-0004 already names, and the
-  reason it is survivable is the bounded credential and the echoed diff rather than the
+  reason it is survivable is the bounded credential and the recorded diff rather than the
   regex.
 - **The Root note's concerns are reported at startup as well as per Job**, because they are
   a standing condition rather than an event: a Vault full of prose in `Root.md` fires on

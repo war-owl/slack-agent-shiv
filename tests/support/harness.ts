@@ -16,6 +16,7 @@ import {
   type AppMentionEvent,
   type Delivery,
 } from "../../src/slack/mentions.ts";
+import { vaultChangeLogFile } from "../../src/vault/change-log.ts";
 import {
   FakeClock,
   FakeEngine,
@@ -84,6 +85,7 @@ export interface CoworkerHarness {
   skillsDir: string;
   workspaceRoot: string;
   stateDir: string;
+  vaultChangeLogPath: string;
   operatingManualPath: string;
   clock: FakeClock;
   slack: FakeSlack;
@@ -260,6 +262,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     skillsDir,
     workspaceRoot,
     stateDir,
+    vaultChangeLogPath: vaultChangeLogFile(stateDir),
     operatingManualPath,
     clock,
     slack,

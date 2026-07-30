@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EngineEvent } from "../src/ports/engine.ts";
@@ -323,7 +323,7 @@ describe("a Job that dies says what it left behind", () => {
     expect(report).toMatch(/may have landed only partway|worth a look/);
   });
 
-  it("counts the Writes it had already made, because those are what to go and check", async () => {
+  it("logs a Vault change without counting it as an external Write", async () => {
     const h = await coworkerHarness();
     // A Note written before the engine gave up. It is on disk, so it is recorded — the
     // Vault's own contents are what the record is made from, which is what makes this
@@ -336,8 +336,9 @@ describe("a Job that dies says what it left behind", () => {
     await h.mention();
 
     const texts = h.slack.textsIn(DEFAULT_THREAD_TS);
-    expect(texts.some((text) => text.includes("deploys.md"))).toBe(true);
-    expect(texts.at(-1)).toContain("The one action recorded above already happened");
+    expect(texts.some((text) => text.includes("deploys.md"))).toBe(false);
+    expect(await readFile(h.vaultChangeLogPath, "utf8")).toContain("deploys.md");
+    expect(texts.at(-1)).not.toContain("action recorded above");
   });
 
   it("does not claim an all-clear when it recorded nothing", async () => {

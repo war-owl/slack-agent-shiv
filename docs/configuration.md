@@ -61,6 +61,18 @@ directory (`workspace-write` grants those unconditionally, so Skills there would
 writable). Startup refuses to run otherwise — see [docs/skills.md](skills.md). Set `notes`
 alone and `skills` follows it.
 
+### `stateDir`
+
+```json
+"stateDir": "./.state"
+```
+
+Durable wrapper state. Session mappings live here, along with the append-only
+`vault-changes.jsonl` server log. Each Vault record is one JSON object containing the
+timestamp, action, Note path, originating Thread and Job, optional attribution detail, and
+the full available diff. Vault bookkeeping is not posted into Slack; external Write
+receipts are unchanged. Relative paths resolve against the instance file as usual.
+
 ### `bounds`
 
 What stops a Job that does not stop by itself. Codex supplies none of this — no timeout, no
