@@ -19,5 +19,9 @@
   "bounds": {
     "maxConcurrentJobs": 4,
     "librarianTimeoutMs": 300000
+  },
+  "fileTransfer": {
+    "maxDownloadBytes": 20971520,
+    "maxUploadBytes": 20971520
   }
 }

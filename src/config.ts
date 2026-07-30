@@ -47,6 +47,11 @@ export const RECORDED_CODEX_VERSION = "0.145.0";
  */
 export const OPERATING_MANUAL_MAX_BYTES = 32 * 1024;
 
+export const FILE_TRANSFER_DEFAULTS = {
+  maxDownloadBytes: 20 * 1024 * 1024,
+  maxUploadBytes: 20 * 1024 * 1024,
+} as const;
+
 /** Where the configuration file lives unless `CONFIG_PATH` says otherwise. */
 export const DEFAULT_CONFIG_FILENAME = "open-agent.config.json";
 
@@ -151,6 +156,11 @@ export interface Config {
   };
   /** Optional per-Job limits plus shared-service operational bounds. */
   bounds: Bounds;
+  /** Size ceilings for files entering and leaving a Job through Slack. */
+  fileTransfer: {
+    maxDownloadBytes: number;
+    maxUploadBytes: number;
+  };
   /** Connectors, as MCP server configuration (ADR-0005). */
   mcpServers: readonly McpServerConfig[];
   /** The one registry those connectors came from. */
@@ -204,6 +214,13 @@ const configFileSchema = z
       // each field's own default, so "no `engine` section" and "an empty one" agree.
       .prefault({}),
     bounds: boundsSchema.partial().strict().prefault({}),
+    fileTransfer: z
+      .object({
+        maxDownloadBytes: z.number().int().positive().optional(),
+        maxUploadBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .prefault({}),
     repositories: z
       .array(z.string().refine(isRepositoryName, "Expected owner/repository"))
       .default([]),
@@ -302,6 +319,11 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       tokenBudgetPerJob: file.bounds.tokenBudgetPerJob,
       maxConcurrentJobs: file.bounds.maxConcurrentJobs ?? BOUND_DEFAULTS.maxConcurrentJobs,
       librarianTimeoutMs: file.bounds.librarianTimeoutMs ?? BOUND_DEFAULTS.librarianTimeoutMs,
+    },
+    fileTransfer: {
+      maxDownloadBytes:
+        file.fileTransfer.maxDownloadBytes ?? FILE_TRANSFER_DEFAULTS.maxDownloadBytes,
+      maxUploadBytes: file.fileTransfer.maxUploadBytes ?? FILE_TRANSFER_DEFAULTS.maxUploadBytes,
     },
     mcpServers: mcp.servers,
     mcpConfigSource: mcp.source,

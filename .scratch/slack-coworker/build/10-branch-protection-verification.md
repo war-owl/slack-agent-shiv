@@ -1,6 +1,6 @@
 # 10 — Branch-protection verification
 
-**What to build:** The coworker's inability to do irreversible things is enforced by the repository, not by its token — so the instance refuses to run against a repository where that enforcement is missing. A self-hoster who has not protected a default branch is told which repository and which setting, at startup, rather than finding out when something gets merged.
+**What to build:** The coworker's inability to do irreversible things is enforced by the repository, not by its token — so the instance checks every configured repository. If our default branch is not protected, startup names the repository and the missing setting rather than letting us find out after something gets merged.
 
 This is the third layer of the action boundary. It became per-repository and opt-in when fine-grained PATs were ruled out, so this check is the entire mitigation for that weakening — it is not a nicety and must not be dropped for convenience.
 
@@ -14,7 +14,7 @@ bypass MCP entirely, but it is again the third of three layers.
 **Status:** ready-for-agent
 
 - [x] Preflight verifies default-branch protection on every configured repository
-- [x] **Startup is never refused for missing protection — it warns and continues.** *(Decided; supersedes the original "refuse" criterion.)* An unprotected or unprotectable repository produces a loud, specific startup warning naming the repository and the missing setting, and the instance runs. Rationale: Check B measured protection as unavailable on free-plan private repositories via *both* mechanisms, so refusing would lock out plausibly the modal self-hoster over a condition they cannot fix without paying. The guardrails carry the weight instead.
+- [x] **Startup is never refused for missing protection — it warns and continues.** *(Decided; supersedes the original "refuse" criterion.)* An unprotected or unprotectable repository produces a loud, specific startup warning naming the repository and the missing setting, and the instance runs. Rationale: Check B measured protection as unavailable on free-plan private repositories via *both* mechanisms, so refusing would lock us out over a condition we cannot fix without paying. The guardrails carry the weight instead.
 - [x] The warning distinguishes **unprotected** (fixable — tell them how) from **unprotectable** (`403 Upgrade to GitHub Pro`, not fixable on their plan — tell them what they are running without), because the remedy differs and a single generic message would be useless for both
 - [x] The protection checked for is: require a pull request before merging, require at least one approving review, and disallow bypassing including for administrators
 - [x] The check queries `GET /repos/{o}/{r}/rules/branches/{default_branch}` for effective rules — **settled by ticket 05**, and mechanism-agnostic, so classic protection and rulesets arrive in one shape
@@ -28,7 +28,7 @@ bypass MCP entirely, but it is again the third of three layers.
 - [x] Documentation states plainly that **Linear has no equivalent third layer** and runs
   on policy and the MCP deny-list alone
 
-> ~~If wayfinder ticket 05 Check A finds that bypass-disabled protection does **not** bind a repository admin…~~ **Check A has run and passed** — a ruleset with `bypass_actors: []` blocks an admin's merge (`405`) and force-push (`GH013`). ADR-0002 does not reopen. What did change is Check B: protection is unavailable on free private repos via *either* mechanism. **Resolved by decision — the instance warns and runs rather than refusing**, on the grounds that a self-hoster should not be locked out by a paywall they cannot clear. The consequence is that this ticket's guardrails stop being belt-and-braces and become the actual mitigation.
+> ~~If wayfinder ticket 05 Check A finds that bypass-disabled protection does **not** bind a repository admin…~~ **Check A has run and passed** — a ruleset with `bypass_actors: []` blocks an admin's merge (`405`) and force-push (`GH013`). ADR-0002 does not reopen. What did change is Check B: protection is unavailable on free private repos via *either* mechanism. **Resolved by decision — the instance warns and runs rather than refusing**, because a paywall we cannot clear should not lock us out. The consequence is that this ticket's guardrails stop being belt-and-braces and become the actual mitigation.
 
 ## Comments
 

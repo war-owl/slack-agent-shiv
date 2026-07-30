@@ -34,7 +34,7 @@ How the mechanism landed:
   Writes are serialised because Jobs in different Threads run concurrently and each
   write rewrites the whole file, and the in-memory copy is updated only once the write
   lands, so a `get` never claims a Session that is not on disk. The spec left the store
-  to implementation; a file needs no daemon for a self-hoster to run.
+  to implementation; a file needs no extra daemon to run.
 - **Threads are keyed by digest, not by name — and this was a bug caught in review.**
   The first version stored `channel:ts → session id` with `channel` and `ts` also
   denormalised into each record "so the file is readable on its own". That made
@@ -50,7 +50,7 @@ How the mechanism landed:
   Thread resumed into, which is the better place to look anyway.
 - **The store is opened eagerly at startup, an unreadable one is fatal, and the file is
   parsed rather than trusted.** A store that will not parse means every Thread has
-  silently forgotten everything, which a self-hoster should learn at startup with the
+  silently forgotten everything, which the operator should learn at startup with the
   other preflight problems rather than from a Job that answered as if they had never
   met. Validated with zod, like the configuration, because `JSON.parse("null")` succeeds
   and would otherwise surface as a `TypeError` deep inside a Job. Truncated, empty,
@@ -67,7 +67,7 @@ How the mechanism landed:
 Measured three ways, all negative:
 
 - Under `sandboxMode: "workspace-write"`, a Job runs `ls "$HOME/.codex/sessions"` and
-  gets the full listing — every Thread's rollout `.jsonl`, and the self-hoster's own
+  gets the full listing — every Thread's rollout `.jsonl`, and the operator's own
   interactive Codex transcripts along with them.
 - `codex exec` exposes **no way to narrow reads**. The readable-root machinery exists in
   the binary (`--sandbox-state-readable-root`, `--permission-profile`) but only on
@@ -100,9 +100,9 @@ What was done about it, and what was deliberately not:
   so it means copying a credential (stale when the token refreshes), symlinking it
   (broken if Codex rewrites the file by rename), or asking for a second `codex login`.
   The spec already flags "a credential that silently expires mid-Job" as the production
-  failure mode to watch for, and the third option is a setup-story change. So the trade
-  is deliberate and the work is **carried to [build/13](13-setup-story.md)**, where
-  "run `CODEX_HOME=… codex login`" is one line of a guide that is being written anyway.
+  failure mode to watch for, and the third option is an operational change. So the trade
+  is deliberate and remains recorded here: a dedicated `CODEX_HOME` would require a
+  separate `codex login`.
 - **Per-Thread `CODEX_HOME` is not a fix** even setting auth aside: sibling directories
   are enumerable, so it is obscurity rather than a boundary.
 

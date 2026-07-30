@@ -2,12 +2,16 @@ import { App } from "@slack/bolt";
 import type { Config } from "../config.ts";
 import type { Logger } from "../ports/log.ts";
 import type {
+  DownloadFile,
+  DownloadedFile,
   PostMessage,
   PostedMessage,
   SetStatus,
   SlackClient,
   SlackIdentity,
   UpdateMessage,
+  UploadedFile,
+  UploadFile,
 } from "../ports/slack.ts";
 import type { MentionGateway } from "./mentions.ts";
 
@@ -36,7 +40,7 @@ export function createSlackApp(config: Config): App {
 }
 
 /** The narrow Slack surface the coworker actually uses, backed by Bolt's client. */
-export function slackClientFor(app: App): SlackClient {
+export function slackClientFor(app: App, botToken: string): SlackClient {
   return {
     /**
      * `auth.test`, which is the only call that validates the bot token without posting
@@ -49,6 +53,33 @@ export function slackClientFor(app: App): SlackClient {
         throw new Error("Slack accepted auth.test but named no user, which should not happen");
       }
       return { botUserId: result.user_id, team: result.team ?? "an unnamed workspace" };
+    },
+
+    async downloadFile(file: DownloadFile): Promise<DownloadedFile> {
+      const response = await fetch(file.url, {
+        headers: { authorization: `Bearer ${botToken}` },
+        redirect: "follow",
+      });
+      if (!response.ok) {
+        throw new Error(`Slack file download returned HTTP ${response.status}`);
+      }
+      return {
+        bytes: Buffer.from(await response.arrayBuffer()),
+        contentType: response.headers.get("content-type") ?? undefined,
+      };
+    },
+
+    async uploadFile(file: UploadFile): Promise<UploadedFile> {
+      const result = await app.client.files.uploadV2({
+        channel_id: file.thread.channel,
+        thread_ts: file.thread.ts,
+        filename: file.filename,
+        title: file.filename,
+        initial_comment: file.comment,
+        file: file.bytes,
+      });
+      const uploaded = (result as { files?: { permalink?: string }[] }).files?.[0];
+      return { permalink: uploaded?.permalink };
     },
 
     async postMessage(message: PostMessage): Promise<PostedMessage> {

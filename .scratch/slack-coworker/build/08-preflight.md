@@ -1,6 +1,6 @@
 # 08 — Preflight: credentials, dependencies, and connector connectivity
 
-**What to build:** A self-hoster starts the instance and either it runs or it names the
+**What to build:** We start the instance and either it runs or it names the
 configuration problem. Missing credentials and unreachable MCP servers fail before the
 first mention. Changes to an upstream tool inventory do not stop startup.
 

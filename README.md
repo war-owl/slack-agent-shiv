@@ -1,8 +1,7 @@
 # open-agent
 
-A self-hosted AI coworker that lives in a Slack workspace you control, running
-against tokens you issue. You @-mention it in a thread with a real task, close your
-laptop, and come back to the work done.
+An AI coworker that lives in our Slack workspace. You @-mention it in a thread with
+a real task, close your laptop, and come back to the work done.
 
 So far it is the walking skeleton ([build/01](.scratch/slack-coworker/build/01-walking-skeleton.md)),
 one Session per thread ([build/02](.scratch/slack-coworker/build/02-session-per-thread.md)),
@@ -46,6 +45,22 @@ creation, and both actions land in the Thread's audit record.
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
 [`docs/adr/`](docs/adr).
+
+## Files in and out
+
+Attach a CSV, log, JSON export, document, archive, or database file to the message that
+mentions the coworker. It downloads the private Slack file into that Job's workspace,
+checks the configured size ceiling, and names the exact path and declared type in the
+prompt. Images are rejected honestly until the headless engine's image support is verified.
+
+When a result is better as a file, the coworker writes it into the Job-specific output
+directory named in its prompt. The wrapper uploads every regular file there back into the
+originating Thread before the final answer and appends a permanent audit receipt. Symlinks,
+directories, and oversized outputs are not uploaded.
+
+Our Slack app requires `files:read` for attachments and `files:write` for result uploads;
+changing scopes requires reinstalling the app. Both transfer ceilings default to 20 MiB and
+are configurable under `fileTransfer`.
 
 ## Running it
 
@@ -181,7 +196,7 @@ pnpm test:contract # slow, opt-in: runs a real `codex exec`
 scripted engine, a controllable clock, and real files in a temporary location for the
 Vault and the Session store — and asserts on three things: the Slack calls made, the
 files on disk, and the prompt the engine received. A test should still pass if the
-internals were rewritten, and should fail if a self-hoster's experience changed.
+internals were rewritten, and should fail if our experience changed.
 
 **`pnpm test:contract` is how a Codex version bump gets validated.** It runs a real
 `codex exec` and asserts the things a fake cannot honestly assert — that the JSONL

@@ -76,6 +76,24 @@ spending; configure `turnTimeoutMs` when a hard wall-clock ceiling is required.
 `librarianTimeoutMs` defaults to five minutes because curation is best-effort work that
 should not hold the next Job indefinitely.
 
+### `fileTransfer`
+
+```json
+"fileTransfer": {
+  "maxDownloadBytes": 20971520,
+  "maxUploadBytes": 20971520
+}
+```
+
+The byte ceilings for Slack attachments entering a Job and result artifacts returning to
+the Thread. Both default to 20 MiB. Incoming files are rejected from Slack metadata before
+download when they are already too large; downloaded bytes are checked again. Output files
+are checked on disk before upload.
+
+Our Slack app needs `files:read` to download private attachment URLs and `files:write` to
+share result artifacts. Changing either scope requires reinstalling the app in the
+workspace.
+
 ### `engine`
 
 `model`, `reasoningEffort`, and optionally `codexPath`. `low` effort is the right default

@@ -36,12 +36,15 @@ export interface NoteProvenance {
    * as unknown where a wrong one reads as fact.
    */
   attributable: boolean;
+  /** Slack attachment names supplied to this Job, conservatively attached as sources. */
+  sourceFiles?: readonly string[] | undefined;
 }
 
 /** The frontmatter keys the wrapper owns. Anything else in the block is left alone. */
 const MODIFIED = "modified";
 const THREAD = "thread";
 const JOB = "job";
+const SOURCE_FILES = "source-files";
 
 /**
  * A file's frontmatter lines and its body.
@@ -118,6 +121,9 @@ function withProvenance(contents: string, provenance: NoteProvenance): string {
       ? ([
           [THREAD, `${provenance.thread.channel}/${provenance.thread.ts}`],
           [JOB, provenance.jobId],
+          ...(provenance.sourceFiles?.length
+            ? [[SOURCE_FILES, JSON.stringify(provenance.sourceFiles)] as [string, string]]
+            : []),
         ] satisfies [string, string][])
       : []),
   ];
@@ -126,7 +132,9 @@ function withProvenance(contents: string, provenance: NoteProvenance): string {
   const block = lines.filter(
     // A stale attribution is dropped when this Job cannot replace it: it named the last
     // Job known to have written the Note, and that is no longer what happened to it.
-    (line) => provenance.attributable || !(starts(line, THREAD) || starts(line, JOB)),
+    (line) =>
+      !starts(line, SOURCE_FILES) &&
+      (provenance.attributable || !(starts(line, THREAD) || starts(line, JOB))),
   );
 
   for (const [key, value] of stamps) {

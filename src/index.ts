@@ -23,7 +23,7 @@ async function main(): Promise<void> {
 
   const coworker = createCoworker({
     config,
-    slack: slackClientFor(app),
+    slack: slackClientFor(app, config.slack.botToken),
     // The connectors reach the engine as *generated Codex configuration*, deny-list
     // included — the wrapper is not in the tool path (ADR-0005), so this is the only way
     // layer 2 exists at all.

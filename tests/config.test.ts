@@ -4,6 +4,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import {
   BOUND_DEFAULTS,
   DEFAULT_CONFIG_FILENAME,
+  FILE_TRANSFER_DEFAULTS,
   loadConfig,
   type ConfigFile,
 } from "../src/config.ts";
@@ -67,6 +68,7 @@ describe("the configuration file", () => {
     expect(config.mcpServers).toEqual([]);
     expect(path.basename(config.notesDir)).toBe(NOTES_DIRNAME);
     expect(config.engine.reasoningEffort).toBe("low");
+    expect(config.fileTransfer).toEqual(FILE_TRANSFER_DEFAULTS);
   });
 
   it("refuses to start when it was told where the file is and there is nothing there", async () => {
@@ -107,6 +109,19 @@ describe("the configuration file", () => {
     expect(config.bounds.turnTimeoutMs).toBe(90_000);
     expect(config.bounds.maxTurnsPerJob).toBeUndefined();
     expect(config.bounds.tokenBudgetPerJob).toBeUndefined();
+  });
+
+  it("takes independent Slack download and upload size ceilings", async () => {
+    const { filePath } = await configFile({
+      fileTransfer: { maxDownloadBytes: 1_000_000, maxUploadBytes: 2_000_000 },
+    });
+
+    const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
+
+    expect(config.fileTransfer).toEqual({
+      maxDownloadBytes: 1_000_000,
+      maxUploadBytes: 2_000_000,
+    });
   });
 
   it("loads the repositories whose default branches preflight must verify", async () => {

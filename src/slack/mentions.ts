@@ -21,6 +21,15 @@ export interface AppMentionEvent {
   user?: string | undefined;
   text?: string | undefined;
   bot_id?: string | undefined;
+  files?: readonly AppMentionFile[] | undefined;
+}
+
+export interface AppMentionFile {
+  id?: string | undefined;
+  name?: string | undefined;
+  mimetype?: string | undefined;
+  size?: number | undefined;
+  url_private_download?: string | undefined;
 }
 
 /** The envelope Slack wraps the event in. `event_id` lives here, not on the event. */
@@ -82,5 +91,14 @@ function toMention(
     },
     userId: event.user ?? "unknown",
     text: event.text ?? "",
+    // Preserve incomplete file objects too. Dropping one would let the Job run as if the
+    // user had attached nothing; normalizing missing fields makes ingress fail honestly.
+    files: (event.files ?? []).map((file) => ({
+      id: file.id ?? "unknown",
+      name: file.name ?? `Slack file ${file.id ?? "unknown"}`,
+      mimetype: file.mimetype ?? "unknown",
+      size: file.size ?? 0,
+      privateDownloadUrl: file.url_private_download ?? "",
+    })),
   };
 }

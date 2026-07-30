@@ -2,7 +2,7 @@
   "name": "open-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "A self-hosted AI coworker that lives in your Slack workspace",
+  "description": "An AI coworker that lives in our Slack workspace",
   "type": "module",
   "engines": {
     "node": ">=20"

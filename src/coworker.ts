@@ -1,5 +1,11 @@
 import type { Config } from "./config.ts";
 import { reasonFor } from "./failure.ts";
+import {
+  ingestMentionFiles,
+  prepareOutputDirectory,
+  shareResultFiles,
+} from "./files/transfer.ts";
+import type { IngestedFile, MentionFile } from "./files/types.ts";
 import { boundJob, type JobBounds, type StopReason } from "./jobs/bounds.ts";
 import { trackTurnDurability } from "./jobs/interruption.ts";
 import { buildJobPrompt } from "./jobs/prompt.ts";
@@ -38,6 +44,7 @@ export interface Mention {
   thread: Thread;
   userId: string;
   text: string;
+  files: readonly MentionFile[];
 }
 
 /** A Job that has started. It runs long after the mention has been acknowledged. */
@@ -299,6 +306,8 @@ async function runJob(
    */
   let vault: VaultWindow | undefined;
   let workspaceDir: string | undefined;
+  let outputDir: string | undefined;
+  let ingestedFiles: readonly IngestedFile[] = [];
   let root: RootNote = NO_ROOT_NOTE;
 
   try {
@@ -307,6 +316,17 @@ async function runJob(
     });
     const workingDirectory = prepared.directory;
     workspaceDir = workingDirectory;
+    outputDir = await prepareOutputDirectory({
+      workspaceDir: workingDirectory,
+      jobId: mention.eventId,
+    });
+    ingestedFiles = await ingestMentionFiles({
+      slack: deps.slack,
+      workspaceDir: workingDirectory,
+      jobId: mention.eventId,
+      files: mention.files,
+      maxBytes: deps.config.fileTransfer.maxDownloadBytes,
+    });
     audit = startAuditTrail({
       slack: deps.slack,
       log: deps.log,
@@ -327,6 +347,7 @@ async function runJob(
       thread: mention.thread,
       jobId: mention.eventId,
       windows: vaultWindows,
+      sourceFiles: ingestedFiles.map((file) => file.name),
     });
 
     // The map, handed over rather than asked for — and stripped to links on the way in,
@@ -368,6 +389,8 @@ async function runJob(
       skills,
       root,
       repositoryAccess: prepared.repositoryAccess,
+      ingestedFiles,
+      outputDir,
     });
 
     try {
@@ -432,6 +455,41 @@ async function runJob(
    */
   const stoppedBy = bounds.stoppedBy;
 
+  if (outputDir !== undefined && audit !== undefined) {
+    const results = await shareResultFiles({
+      slack: deps.slack,
+      thread: mention.thread,
+      outputDir,
+      maxBytes: deps.config.fileTransfer.maxUploadBytes,
+    });
+    for (const result of results.shared) {
+      audit.append({
+        action: "Uploaded a result file",
+        subject: result.filename,
+        url: result.permalink,
+        via: "Slack files.uploadV2",
+      });
+    }
+    for (const result of results.unshared) {
+      audit.append({
+        action: "Tried to upload a result file",
+        subject: result.filename,
+        via: "Slack files.uploadV2",
+        failure: "the upload failed",
+        detail: result.reason,
+      });
+    }
+    if (results.unshared.length > 0) {
+      const summary = results.unshared
+        .map((result) => `${result.filename}: ${result.reason}`)
+        .join("; ");
+      failure =
+        failure === undefined
+          ? `I could not share ${results.unshared.length === 1 ? "a result file" : "some result files"}: ${summary}`
+          : `${failure}; I also could not share result files: ${summary}`;
+    }
+  }
+
   if (stoppedBy !== undefined) {
     deps.log.warn(
       `Job ${mention.eventId} in thread ${mention.thread.ts} was stopped — ` +
@@ -476,6 +534,7 @@ async function runJob(
       signal: bounds.signal,
       vault,
       audit,
+      ingestedFiles,
     });
   } finally {
     bounds.release();
@@ -509,6 +568,7 @@ async function tidyUp(
     signal: AbortSignal;
     vault: VaultWindow | undefined;
     audit: AuditTrail | undefined;
+    ingestedFiles: readonly IngestedFile[];
   },
 ): Promise<void> {
   // Skipped for a Job that was stopped, and that is a judgement rather than a shortcut:
@@ -529,7 +589,7 @@ async function tidyUp(
       notesDir: deps.config.notesDir,
       workingDirectory: job.workspaceDir,
       root: job.root,
-      request: mention.text,
+      request: librarianRequest(mention.text, job.ingestedFiles),
       transcript: job.transcript,
       answer: job.answer,
     },
@@ -550,6 +610,19 @@ async function tidyUp(
     await job.vault.settle(job.audit);
     await job.audit.drain();
   }
+}
+
+function librarianRequest(message: string, files: readonly IngestedFile[]): string {
+  if (files.length === 0) return message;
+  return [
+    message,
+    "",
+    "Slack attachments used as untrusted source material:",
+    ...files.map((file) => `- ${file.name} (${file.mimetype}) at ${file.path}`),
+    "",
+    "If a Note derives a durable fact from one of these files, name that source file in",
+    "the Note so its provenance includes more than the Thread and Job stamps.",
+  ].join("\n");
 }
 
 /**

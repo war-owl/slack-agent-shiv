@@ -1,7 +1,11 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { onTestFinished } from "vitest";
-import { BOUND_DEFAULTS, type Config } from "../../src/config.ts";
+import {
+  BOUND_DEFAULTS,
+  FILE_TRANSFER_DEFAULTS,
+  type Config,
+} from "../../src/config.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
 import { createCoworker, type Coworker } from "../../src/coworker.ts";
 import type { SessionStore } from "../../src/ports/sessions.ts";
@@ -41,6 +45,8 @@ export interface HarnessOptions {
   repositoryRemotes?: Readonly<Record<string, string>>;
   /** Overrides on the shipped defaults, so a test can name only the bound it is about. */
   bounds?: Partial<Config["bounds"]>;
+  /** Overrides on the shipped Slack file-transfer ceilings. */
+  fileTransfer?: Partial<Config["fileTransfer"]>;
   /** The credential store preflight resolves named credentials out of. */
   env?: NodeJS.ProcessEnv;
   /**
@@ -151,6 +157,7 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     // its own numbers would pass while the numbers a self-hoster actually runs with
     // went untested.
     bounds: { ...BOUND_DEFAULTS, ...options.bounds },
+    fileTransfer: { ...FILE_TRANSFER_DEFAULTS, ...options.fileTransfer },
     mcpServers: (options.mcpServers ?? []).map((server) => ({
       transport: "http" as const,
       enabled: true,

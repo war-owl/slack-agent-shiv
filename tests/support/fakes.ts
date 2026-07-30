@@ -14,12 +14,16 @@ import type {
   RepositoryProtectionProbe,
 } from "../../src/ports/repositories.ts";
 import type {
+  DownloadFile,
+  DownloadedFile,
   PostMessage,
   PostedMessage,
   SetStatus,
   SlackClient,
   SlackIdentity,
   UpdateMessage,
+  UploadedFile,
+  UploadFile,
 } from "../../src/ports/slack.ts";
 import type { Thread } from "../../src/thread.ts";
 
@@ -52,6 +56,10 @@ export interface StatusCall {
   at: number;
 }
 
+export interface FileUploadCall extends UploadFile {
+  at: number;
+}
+
 export class FakeSlack implements SlackClient {
   /** Every text Slack was asked to show, posts and edits together, in order. */
   readonly writes: SlackWrite[] = [];
@@ -61,12 +69,19 @@ export class FakeSlack implements SlackClient {
   readonly editAttempts: (UpdateMessage & { at: number })[] = [];
   /** Every call to Slack's own status indicator. An empty status clears it. */
   readonly statuses: StatusCall[] = [];
+  /** Private Slack URLs this fake can serve, by exact address. */
+  readonly downloadableFiles = new Map<string, DownloadedFile>();
+  readonly downloadAttempts: DownloadFile[] = [];
+  /** Every result artifact shared into Slack. */
+  readonly uploads: FileUploadCall[] = [];
   /** Set to make the next `postMessage` fail, as a Slack outage would. */
   failNextPost: Error | undefined;
   /** Set to make every edit fail, as a rate limit or a deleted message would. */
   failEdits: Error | undefined;
   /** Set to make the indicator fail, as an app predating the scope change would. */
   failStatuses: Error | undefined;
+  /** Set to make every result-file upload fail. */
+  failUploads: Error | undefined;
 
   private nextTs = 1;
   private readonly clock: Clock;
@@ -99,6 +114,19 @@ export class FakeSlack implements SlackClient {
   async identity(): Promise<SlackIdentity> {
     if (this.failIdentity) throw this.failIdentity;
     return { botUserId: "U0COWORKER", team: "A Test Workspace" };
+  }
+
+  async downloadFile(file: DownloadFile): Promise<DownloadedFile> {
+    this.downloadAttempts.push(file);
+    const found = this.downloadableFiles.get(file.url);
+    if (found === undefined) throw new Error(`No fake Slack file exists at ${file.url}`);
+    return found;
+  }
+
+  async uploadFile(file: UploadFile): Promise<UploadedFile> {
+    if (this.failUploads) throw this.failUploads;
+    this.uploads.push({ ...file, at: this.clock.now() });
+    return { permalink: `https://test.slack.com/files/${encodeURIComponent(file.filename)}` };
   }
 
   async postMessage(message: PostMessage): Promise<PostedMessage> {

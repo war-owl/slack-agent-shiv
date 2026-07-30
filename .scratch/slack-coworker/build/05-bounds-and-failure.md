@@ -149,8 +149,7 @@ happened at all.
   not. Ten Threads mentioning the coworker at the same time is ten subprocesses and ten
   budgets. `status.ts` already flags the Slack-rate-limit half of this. It needs a home,
   and build/06 — which is where per-Thread sequencing arrives — is the natural one.
-- **The stop vocabulary is not in the setup guide.** "Say `@coworker stop` and nothing
-  else" is a thing a self-hoster has to be told, and build/13 is where telling them
-  happens.
+- **The stop vocabulary belongs in the operating documentation.** Say
+  `@coworker stop` and nothing else; adding more words turns it into a queued correction.
 - **A queued mention arriving during a stopped Job** is build/06's, and the running-Job
   index this ticket added is the same index its queue will need.

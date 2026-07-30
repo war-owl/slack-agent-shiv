@@ -98,6 +98,8 @@ export interface VaultWindowDeps {
   thread: Thread;
   /** Slack's `event_id` for the mention — the Job's identity in the frontmatter too. */
   jobId: string;
+  /** Slack inputs whose facts may have informed a Note changed in this window. */
+  sourceFiles?: readonly string[] | undefined;
   windows: VaultWindows;
 }
 
@@ -153,6 +155,7 @@ export async function openVaultWindow(deps: VaultWindowDeps): Promise<VaultWindo
           jobId: deps.jobId,
           at: deps.clock.now(),
           attributable,
+          sourceFiles: deps.sourceFiles,
         });
         for (const failed of stamping.failures) {
           deps.log.warn(

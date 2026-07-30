@@ -42,7 +42,7 @@ A single Markdown file in the Vault. The one kind of artifact the coworker write
 
 A Note is **the current belief about its topic**, not a log of beliefs. Learning something that contradicts a Note means rewriting that Note, so divergence becomes visible to a human reading the Vault rather than accumulating silently.
 
-Frontmatter carries when it was last modified and which Thread and Job wrote it, so both a human and the coworker can judge staleness and origin. It is stamped by the wrapper rather than written by the coworker: the one field that says "this came from the coworker" should not be the one field the coworker could forget.
+Frontmatter carries when it was last modified and which Thread and Job wrote it, so both a human and the coworker can judge staleness and origin. When a Job carried Slack attachments, their filenames are stamped conservatively as source files too. It is stamped by the wrapper rather than written by the coworker: the one field that says "this came from the coworker" should not be the one field the coworker could forget.
 
 ## Root note
 

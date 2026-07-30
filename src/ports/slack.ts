@@ -35,6 +35,29 @@ export interface SetStatus {
   status: string;
 }
 
+export interface DownloadFile {
+  /** Slack's private download URL from the file object on the mention event. */
+  url: string;
+}
+
+export interface DownloadedFile {
+  bytes: Buffer;
+  contentType: string | undefined;
+}
+
+export interface UploadFile {
+  thread: Thread;
+  filename: string;
+  bytes: Buffer;
+  /** A short permanent introduction attached to the file message. */
+  comment: string;
+}
+
+export interface UploadedFile {
+  /** Slack's human-facing file URL, when the upload response includes it. */
+  permalink: string | undefined;
+}
+
 /** Who the instance is, according to Slack. What `auth.test` answers. */
 export interface SlackIdentity {
   /** The bot's own user id — the one that appears in `<@…>` when someone mentions it. */
@@ -53,6 +76,10 @@ export interface SlackClient {
    * somebody is watching.
    */
   identity(): Promise<SlackIdentity>;
+  /** Fetch a private Slack file with the bot token. */
+  downloadFile(file: DownloadFile): Promise<DownloadedFile>;
+  /** Upload an artifact and share it directly into the originating Thread. */
+  uploadFile(file: UploadFile): Promise<UploadedFile>;
   postMessage(message: PostMessage): Promise<PostedMessage>;
   /**
    * Rewrite a message in place. Preferred over posting for progress: `chat.update` is

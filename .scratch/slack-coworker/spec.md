@@ -2,7 +2,10 @@
 
 Status: ready-for-agent
 
-Synthesised from the [map](map.md) — twelve decision tickets, five ADRs, and fifteen build slices. Every decision below traces to one of them; this document assembles them into something buildable and does not reopen any.
+Synthesised from the [map](map.md) — twelve decision tickets, five ADRs, and the active
+build slices. Every decision below traces to one of them; this document assembles them
+into something buildable and does not reopen any. Distribution and public-readiness work
+is deferred while the project focuses on our own workflow.
 
 **Revised 2026-07-28**, after the provisioning checks ran and six decisions landed that this document originally predated. The changes are not cosmetic — the branch-protection story moved from *verified assumption* to *measured, and partly broken*, and preflight's behaviour reversed from refusing to warning. If you are returning to a copy of this spec you read earlier, reread [The action boundary](#the-action-boundary) and [Skills](#skills).
 
@@ -12,11 +15,12 @@ Delegating real work to an AI assistant today means babysitting it. You open a s
 
 A coworker is different. You ask a coworker for something in the channel where the work is being discussed, they go away for an hour, and they come back with it done. They already know your projects, because they have been here a while. They know where the repository is and which Linear team owns the ticket. They do not ask you to re-explain the thing you explained last week, and they do not ask permission to open a pull request, because opening a pull request is not the kind of thing you ask permission for.
 
-Nobody self-hosting today can get that. The pieces exist — capable agents, MCP connectors, Slack bots — but assembling them into something you can @-mention and then close your laptop on is a project, not a download. And the assemblies that do exist are SaaS: your credentials, your private channels, and your accumulated context live on someone else's infrastructure.
+The pieces exist — capable agents, MCP connectors, and Slack bots — but they are not
+assembled into the coworker we need in the place where our work already happens.
 
 ## Solution
 
-An open-source, self-hosted AI coworker that lives in a Slack workspace you control, running against tokens you issue.
+An AI coworker that lives in our Slack workspace and works with our tools and knowledge.
 
 You @-mention it in a Thread with a real task. It acknowledges immediately, then works — for minutes or hours — reporting progress in a single message it keeps updating, and appending a permanent record of every Write it makes to the outside world. When it finishes it reports back in the Thread. You were not there for any of it.
 
@@ -57,14 +61,15 @@ It also does work that has nothing to do with code. Drop a CSV into the Thread a
 19. As a thread observer, I want a Write record to name the thing that was written — which pull request, which ticket, which comment — with a link, so that I can go and check it.
 20. As a delegator, I want every Note the coworker creates or changes echoed into the Thread as a diff, so that I can see what it decided to believe and correct it if it is wrong.
 21. As a security-conscious operator, I want merges to a *protected* default branch to fail server-side even when the coworker's own token attempts them, so that the worst thing an injected instruction can achieve is something a human can undo.
-21a. As a self-hoster on a free plan, I want to be told clearly that my private repositories **cannot** be protected and what I am therefore running without, so that I am making a choice rather than holding a false belief.
+21a. As an operator, I want to be told clearly when a private repository **cannot** be protected on our current plan and what we are therefore running without.
 22. As a security-conscious operator, I want the coworker unable to delete a repository or administer the organisation, so that the most destructive actions are absent from the credential entirely.
-23. As a self-hoster, I want connector tool inventories to evolve without startup
+23. As an operator, I want connector tool inventories to evolve without startup
 lock-outs, so that upstream additions, removals, and renames do not require routine
 configuration maintenance.
 24. As an operator, I want startup to report each connector's current tool count, so that
 its reachable surface remains visible without becoming an approval gate.
-25. As a security-conscious operator, I want the setup guide to tell me precisely which token scopes to issue, which to withhold, and why each decision was made, so that least privilege is the default path rather than the diligent path.
+25. As a security-conscious operator, I want our credential configuration to record
+precisely which token scopes to issue, which to withhold, and why.
 
 ### Memory that a human owns
 
@@ -93,6 +98,9 @@ its reachable surface remains visible without becoming an approval gate.
 40e. As a vault owner, I want to write a **Skill** — a procedure it should follow, like how to query a reporting database — as an ordinary Markdown file I edit in Obsidian, so that teaching it something requires no code.
 40f. As a security-conscious operator, I want the coworker to be **structurally unable to edit a Skill**, so that a poisoned Job cannot write commands that a later Job in another Thread will execute.
 40g. As a vault owner, I want Skills to name an environment variable rather than contain a credential, so that my Vault stays something I can sync and commit.
+40h. As a delegator, I want a result that is naturally a file to be uploaded into the
+Thread, so that reports, exports, images, and archives arrive in a usable form rather than
+being pasted or stranded in the coworker's workspace.
 
 ### Failure, restart, and bounds
 
@@ -109,29 +117,27 @@ choose a ceiling.
 49. As an operator, I want the same Slack event delivered twice to produce one Job, so that Slack's retry behaviour does not double the work or the spend.
 50. As an operator, I want the instance to survive a Slack disconnect and reconnect without losing its Session mappings, so that a network blip is not a memory wipe.
 
-### Self-hosting
+### Instance operation
 
-51. As a self-hoster, I want to create my own Slack app from a provided manifest, so that setup is a paste rather than a form-filling exercise — and so that I am not throttled by the rate limits that apply to distributed apps.
-52. As a self-hoster, I want the app to run over Socket Mode, so that I do not need a public HTTPS endpoint to try it.
-53. As a self-hoster, I want one instance configuration and one extensible `mcp.json`
+52. As an operator, I want the app to run over Socket Mode, so that we do not need a public HTTPS endpoint.
+53. As an operator, I want one instance configuration and one extensible `mcp.json`
     naming my tokens, Vault, and connectors, so that MCP servers have one obvious place to
     be added without mixing them into unrelated runtime settings.
-54. As a self-hoster, I want the instance to fail at startup with a clear message when a required credential is missing or invalid, so that I find out immediately rather than on the first mention.
-55. As a self-hoster, I want the instance to record and report the Codex version it is running against, so that when upstream breaks something I can see what changed.
+54. As an operator, I want the instance to fail at startup with a clear message when a required credential is missing or invalid, so that I find out immediately rather than on the first mention.
+55. As an operator, I want the instance to record and report the Codex version it is running against, so that when upstream breaks something I can see what changed.
 56. *(withdrawn — the project does not pin a Codex version in v1; see [Runtime configuration](#runtime-configuration).)*
 57. As a contributor, I want to add a connector by pointing the configuration at another MCP server, so that extending the coworker requires no code in this project.
 58. As a contributor, I want a new server to inherit the fixed deny floor and support
 explicit `disabledTools` without freezing its full inventory, so that adding a connector is
 both safe for known exclusions and forgiving of future growth.
-59. As a self-hoster, I want the documented setup surprises — the org-approval trap, the scopes Slack demands versus offers — written down, so that I hit them with a fix in hand.
-60. As a self-hoster, I want the coworker's operating manual to be a file I can read and adjust, so that its persona and working style are mine to shape.
+60. As an operator, I want the coworker's operating manual to be a file I can read and adjust, so that its persona and working style are mine to shape.
 
 ### The repository as the boundary
 
-61. As a self-hoster, I want the setup guide to walk me through protecting the default branch of every repository the coworker touches, so that the safety guarantee is something I actually have rather than something I read about.
-62. As a self-hoster, I want the instance to **warn loudly and keep running** when a configured repository's default branch is unprotected, so that a paywall or a forgotten step degrades my safety rather than locking me out of my own tool.
-63. As a self-hoster, I want that warning to name the repository and the specific missing setting, and to distinguish *"you have not turned this on"* from *"your plan does not allow this"*, so that I know whether there is anything I can do about it.
-63a. As a self-hoster, I want a local pre-push hook installed on every checkout that blocks pushes to the default branch, force-pushes, and branch deletions, so that the common failure — the coworker doing something clumsy — is caught even where the server-side guarantee is unavailable.
+61. As an operator, I want every repository the coworker touches to have its default-branch protection verified.
+62. As an operator, I want the instance to **warn loudly and keep running** when a configured repository's default branch is unprotected.
+63. As an operator, I want that warning to name the repository and the specific missing setting, and to distinguish *"you have not turned this on"* from *"your plan does not allow this"*.
+63a. As an operator, I want a local pre-push hook installed on every checkout that blocks pushes to the default branch, force-pushes, and branch deletions.
 64. As a security-conscious operator, I want to be told plainly that Linear has no equivalent protection and runs on the deny-list alone, so that I can calibrate what I connect rather than assume symmetry.
 65. As a delegator, I want the coworker to search GitHub issues and code to find things I did not name explicitly, so that I can describe a problem rather than a location.
 
@@ -180,7 +186,7 @@ Settled during provisioning; recorded here because implementation needs concrete
 
 > **Two of these reverse earlier findings and are recorded as accepted risk, not as resolved questions.**
 >
-> **The version pin was a research conclusion, not a preference.** Codex ships multiple alphas a day and has already removed flags this project would plausibly have depended on (`--full-auto`, `wire_api = "chat"`, `ollama-chat`). Self-hosters install and forget. Without a pin the expected failure is an instance that breaks overnight for a reason nobody can see, which is why reporting the version at startup is the minimum that must survive this decision. Revisit before any public release.
+> **The version pin was a research conclusion, not a preference.** Codex ships multiple alphas a day and has already removed flags this project would plausibly have depended on (`--full-auto`, `wire_api = "chat"`, `ollama-chat`). Without a pin the expected failure is an instance that breaks after an upgrade for a reason nobody can see, which is why reporting the version at startup is the minimum that must survive this decision.
 >
 > **Subscription auth for an always-on bot was flagged as unestablished and is still unverified.** Whether plan credentials permit sustained unattended automated use — rate limits, terms, and whether `auth.json` needs periodic interactive refresh — has not been tested. A credential that silently expires mid-Job is the failure mode to watch for, and it looks like an engine error rather than an auth error.
 >
@@ -237,11 +243,11 @@ Both open questions were tested against a live classic PAT. **They did not come 
 
 **It binds admins — confirmed.** A ruleset with `bypass_actors: []` blocked the repository *owner's own token*: merge returned `405 Repository rule violations found`, force-push returned `GH013 … Cannot force-push to this branch`. This was the load-bearing assumption and it holds.
 
-**It is unavailable on free-plan private repositories — both mechanisms.** Classic branch protection and rulesets both return `403 Upgrade to GitHub Pro or make this repository public`. Rulesets were the hypothesised escape hatch; they are gated identically. So **layer 3 does not exist for a self-hoster on a free plan working in private repositories**, which is plausibly the modal user, and for them the boundary is layers 1 and 2 alone.
+**It is unavailable on free-plan private repositories — both mechanisms.** Classic branch protection and rulesets both return `403 Upgrade to GitHub Pro or make this repository public`. Rulesets were the hypothesised escape hatch; they are gated identically. So **layer 3 does not exist for our private repositories on that plan**, and the boundary there is layers 1 and 2 alone.
 
 **Preflight therefore warns and continues rather than refusing.** Refusing was the original
-design and was given up deliberately: a self-hoster should not be locked out of their own
-tool by a paywall they cannot clear. Without layer 3, policy, the MCP deny-list, the local
+design and was given up deliberately: our instance should not be locked out by a paywall
+we cannot clear. Without layer 3, policy, the MCP deny-list, the local
 hook, and the restricted token are the remaining mitigations.
 
 Preflight resolves protection with two calls: `GET /repos/{o}/{r}/rules/branches/{default_branch}` for effective rules — mechanism-agnostic, so classic protection and rulesets arrive in one shape — then `GET /repos/{o}/{r}/rulesets/{id}` for **`current_user_can_bypass`**, which must read `"never"`. Bypass state is *not* present on the `/rules` response.
@@ -262,7 +268,7 @@ There are **two routes to outside capability and no plugin interface**.
 
 **MCP servers named in `mcp.json`**
 ([ADR-0005](../../docs/adr/0005-connectors-are-mcp-config.md)) — the connector route for
-GitHub, Linear, and anything a self-hoster adds. The project-owned file supports Streamable HTTP and stdio;
+GitHub, Linear, and anything we add. The project-owned file supports Streamable HTTP and stdio;
 preflight consumes it through the official TypeScript client and translates the same
 validated entries into Codex configuration. Under `exec` the wrapper is not in the tool
 path; Codex calls the servers directly, so any normalising abstraction would still mean
@@ -315,18 +321,20 @@ Requirements that are not obvious:
 - Unreadable types fail **honestly in the Thread** rather than being silently dropped.
 - An ingested file is untrusted external content under ADR-0004. A CSV with an injection payload in a cell is the expected case.
 
-**Ingress is not memory** — a file is input to one Job. If it matters, the Librarian writes a Note *about* it; raw files do not enter the Vault. **Egress is out of scope for v1**: posting a generated file back needs its own scope and raises whether a written file is a Write requiring an audit record.
+**Ingress is not memory** — a file is input to one Job. If it matters, the Librarian writes a Note *about* it; raw files do not enter the Vault. **Egress is explicit:** the coworker places a result in its Job-specific output directory, the wrapper uploads it to the Thread, and a permanent Write receipt follows.
 
-> **Unverified.** The Slack surface research covers mentions, status, rate limits, and Socket Mode, and says **nothing about files**. The event shape for attachments, whether `files:read` alone suffices, and whether Codex can read images at all under `exec` are all assumptions until measured.
+Slack's official event types confirm attachment metadata and private download URLs.
+`files:read` is required for ingress and `files:write` for result uploads. Images remain
+unsupported until a real headless Codex run proves it can read them.
 
 ### Slack specifics
 
 - `app_mention` in channels; the DM/Assistant surface is v2.
-- Bot scopes: `app_mentions.read`, `chat:write`, `chat:write.public`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `reactions:write`, and **`files:read`** for attachment ingress. Validate the shipped manifest against Slack's manifest reference before release — it was assembled from the field reference, not copied from a Slack example. Adding `files:read` requires a re-install, so it must be in the manifest from the start rather than added later.
-- Socket Mode, chosen deliberately despite Slack's production guidance: the self-hoster has no public endpoint, and the long-job design means the ack race is already won either way.
+- Bot scopes include **`files:read`** for attachment ingress and **`files:write`** for result uploads, alongside the existing mention, message, history, and reaction scopes. Adding either file scope requires reinstalling our app.
+- Socket Mode, chosen deliberately because we need no public endpoint and the long-job design means the ack race is already won either way.
 - No expiring token, so the bot can write to a Thread indefinitely.
 - Rate limits favour editing one message in place; posting is roughly one message per second per channel.
-- **Do not distribute a single shared Slack app.** Non-Marketplace distributed apps are throttled to one `conversations.replies` call per minute; internal customer-built apps are exempt. "Create your own app from this manifest" is the only configuration that performs.
+- Use our internal customer-built app; its rate-limit class fits the long-running Thread workflow.
 
 ### Progress and durability characteristics
 
@@ -344,7 +352,7 @@ Durability is **turn-granular**. A completed Turn is durable and resumable; a Tu
 
 Test the coworker's **external behaviour**: what appears in the Thread, what appears in the Vault, and what the engine is asked to do. Do not test that a particular module was called, that events were translated into a particular internal shape, or that the queue holds items in a particular structure. Every one of those is a decision the implementation should be free to change.
 
-The useful framing: a test should still pass if the internals were rewritten, and should fail if a self-hoster's experience changed.
+The useful framing: a test should still pass if the internals were rewritten, and should fail if our experience changed.
 
 ### The primary seam
 
@@ -394,7 +402,7 @@ There is none — this is a greenfield repository with no source. The seam shape
 
 Ruled out by decisions already made. Each returns only if its decision is reopened.
 
-- **Multi-tenant SaaS** — app distribution, OAuth install flows, per-workspace token storage, tenant-isolated memory, billing, Slack app review. Ruled out by the open-source self-hosted decision.
+- **Multi-tenant SaaS** — app distribution, OAuth install flows, per-workspace token storage, tenant-isolated memory, billing, Slack app review.
 - **Acting unprompted** — channel watching, webhooks, schedulers, "this PR has been stale three days". Ruled out by the delegate-and-walk-away reading of AFK. This is the largest single thing not being built.
 - **A connector plugin API** — ADR-0005. Extension is MCP configuration.
 - **The DM / Assistant surface** — a genuinely different entry point; v2.
@@ -405,11 +413,11 @@ Ruled out by decisions already made. Each returns only if its decision is reopen
 - **Embedding-based retrieval** and any wrapper-generated index of the whole Vault — rejected in favour of graph traversal from the Root.
 - **Write-time contradiction or poisoning detection**, and quarantining externally-derived Notes — rejected in ticket 10; the Librarian is the same agent that just read the poisoned issue. The model-judged noteworthiness filter is an *editorial* pass, not a revival of this.
 - **Agent-authored Skills.** The coworker follows procedures; it does not write them. ADR-0004 as amended.
-- **File egress** — posting generated files back into the Thread. Needs its own scope and its own audit question; v2.
 - **A database connector.** Deliberately not built: databases are reached by Skill plus shell, so there is no MCP server to configure, pin, or deny-list.
 - **Argument-level tool constraints** — structurally unavailable.
 - **Session storage retention and pruning**, and what happens to a Session when its Thread is archived — acknowledged fog, does not block v1.
-- **The open-source release plan** — licence, README, contribution model. Follows the spec rather than shaping it.
+- **Distribution readiness** — onboarding, licensing, contribution workflow, and packaging
+  for other installations are deferred while we solve our own workflow.
 
 ## Further Notes
 
@@ -429,10 +437,10 @@ are operator-visible credential maintenance rather than hidden wrapper machinery
 
 What the design buys is that the worst realistic outcome is a coworker that believes something false and acts on it *without being able to delete a repository, edit CI, or merge to a branch the repository protects* — in a Thread that records everything it did, over a Vault a human can open and fix.
 
-**That last clause now carries a condition it did not before.** On a free-plan private repository the merge protection is simply absent, and the honest statement of the guarantee there is weaker: the deny-list removes the merge *tool*, the hook catches the clumsy *push*, and neither survives an attacker who reaches for `curl`. A self-hoster in that configuration is trusting layers 1 and 2 and the audit trail. The startup warning exists so they know that, and it is the reason the warning must not be softened into a log line nobody reads.
+**That last clause now carries a condition it did not before.** On a free-plan private repository the merge protection is simply absent, and the honest statement of the guarantee there is weaker: the deny-list removes the merge *tool*, the hook catches the clumsy *push*, and neither survives an attacker who reaches for `curl`. In that configuration we are trusting layers 1 and 2 and the audit trail. The startup warning exists so we know that, and it is the reason the warning must not be softened into a log line nobody reads.
 
 **On sequencing.** The map flagged evolving memory as the sprawl risk. It did not sprawl — ADR-0003 collapsed it into "the Vault is the memory," which is why there is no memory subsystem in the module list. If implementation starts growing one, that is the signal to stop and reread the ADR.
 
-**On the absent Codex version pin.** Flags this project would plausibly have depended on have already been removed upstream (`--full-auto`, `wire_api = "chat"`, `ollama-chat`), and self-hosters install and forget. v1 nonetheless ships without a pin, by decision. Two things follow: the startup version report is not optional, and the contract test suite becomes the real safety net rather than a bump-time formality. Revisit before any public release — "install and forget" is a property of the audience, and it does not change because the pin was inconvenient.
+**On the absent Codex version pin.** Flags this project would plausibly have depended on have already been removed upstream (`--full-auto`, `wire_api = "chat"`, `ollama-chat`). The instance nonetheless runs without a pin, by decision. Two things follow: the startup version report is not optional, and the contract test suite is the real safety net after an upgrade.
 
-**On what "done" means.** A self-hoster can @-mention the bot in a Thread, walk away, and come back to a completed piece of real work spanning its Notes, its accumulated memory, and live GitHub and Linear data.
+**On what "done" means.** We can @-mention the bot in a Thread, walk away, and come back to a completed piece of real work spanning its Notes, accumulated memory, live GitHub and Linear data, and files moving in either direction when the work needs them.

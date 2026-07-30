@@ -36,9 +36,8 @@ Create a fine-grained PAT, select only the repositories the coworker needs, and 
 minimum repository permissions required by the chosen tools. Put the value in
 `GITHUB_TOKEN`. Rotation or expiry is explicit operator maintenance in v1.
 
-The remote GitHub MCP server accepts a valid bearer token. A self-hoster preferring the
-local official server can replace this entry with a stdio/Docker entry without changing
-open-agent.
+The remote GitHub MCP server accepts a valid bearer token. We can replace this entry with
+a local stdio/Docker instance of the official server without changing open-agent.
 
 ## Safety
 
