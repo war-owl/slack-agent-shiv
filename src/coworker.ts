@@ -4,7 +4,11 @@ import {
   prepareOutputDirectory,
   shareResultFiles,
 } from "./files/egress.ts";
-import { ingestMentionFiles } from "./files/ingress.ts";
+import {
+  ingestMentionFiles,
+  isVisualInput,
+  supportsMentionFile,
+} from "./files/ingress.ts";
 import type { IngestedFile, MentionFile } from "./files/types.ts";
 import { boundJob, type JobBounds, type StopReason } from "./jobs/bounds.ts";
 import { trackTurnDurability } from "./jobs/interruption.ts";
@@ -42,6 +46,8 @@ export interface Mention {
   /** Slack's `event_id`. This is the Job's identity, and how a redelivery is caught. */
   eventId: string;
   thread: Thread;
+  /** The message that triggered this Job, distinct from the Thread's root timestamp. */
+  messageTs: string;
   userId: string;
   text: string;
   files: readonly MentionFile[];
@@ -320,11 +326,18 @@ async function runJob(
       workspaceDir: workingDirectory,
       jobId: mention.eventId,
     });
+    const earlierFiles = await deps.slack.listThreadFiles({
+      thread: mention.thread,
+      latestMessageTs: mention.messageTs,
+    });
     ingestedFiles = await ingestMentionFiles({
       slack: deps.slack,
       workspaceDir: workingDirectory,
       jobId: mention.eventId,
-      files: mention.files,
+      files: distinctFiles([
+        ...earlierFiles.filter(supportsMentionFile),
+        ...mention.files,
+      ]),
       maxBytes: deps.config.fileTransfer.maxDownloadBytes,
     });
     audit = startAuditTrail({
@@ -394,7 +407,10 @@ async function runJob(
     });
 
     try {
-      for await (const event of session.run(prompt, { signal: bounds.signal })) {
+      for await (const event of session.run(prompt, {
+        signal: bounds.signal,
+        imagePaths: ingestedFiles.filter(isVisualInput).map((file) => file.path),
+      })) {
         // Everything the engine does reaches the status message, which shows the plan
         // and the step it is on. Nothing is announced as its own message: individual
         // tool calls belong in the one message a glance can read.
@@ -562,6 +578,18 @@ async function runJob(
   }
 }
 
+function distinctFiles(files: readonly MentionFile[]): readonly MentionFile[] {
+  const byIdentity = new Map<string, MentionFile>();
+  for (const [index, file] of files.entries()) {
+    const identity =
+      file.id === "unknown"
+        ? `${file.privateDownloadUrl}\u0000${file.name}\u0000${index}`
+        : file.id;
+    byIdentity.set(identity, file);
+  }
+  return [...byIdentity.values()];
+}
+
 /**
  * The Librarian's closing pass, and the record of anything it filed.
  *
@@ -630,7 +658,7 @@ function librarianRequest(message: string, files: readonly IngestedFile[]): stri
   return [
     message,
     "",
-    "Slack attachments used as untrusted source material:",
+    "Slack Thread files used as untrusted source material:",
     ...files.map((file) => `- ${file.name} (${file.mimetype}) at ${file.path}`),
     "",
     "If a Note derives a durable fact from one of these files, name that source file in",

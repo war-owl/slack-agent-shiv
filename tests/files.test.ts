@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { coworkerHarness } from "./support/harness.ts";
+import { coworkerHarness, DEFAULT_THREAD_TS } from "./support/harness.ts";
 
 describe("files carried into a Job from Slack", () => {
   it("downloads an attached CSV into the workspace and names it in the prompt", async () => {
@@ -28,6 +28,65 @@ describe("files carried into a Job from Slack", () => {
     await expect(readFile(ingested)).resolves.toEqual(bytes);
     expect(h.engine.turns[0]).toContain(ingested);
     expect(h.engine.turns[0]).toContain("text/csv");
+  });
+
+  it("downloads a file shared earlier in the same Slack Thread", async () => {
+    const h = await coworkerHarness();
+    const url = "https://files.slack.com/files-pri/T_TEST-F_EARLIER/brief.pdf";
+    const bytes = Buffer.from("%PDF-thread-brief");
+    h.slack.downloadableFiles.set(url, {
+      bytes,
+      contentType: "application/pdf",
+    });
+    h.slack.threadFilesByThread.set(DEFAULT_THREAD_TS, [
+      {
+        id: "F_EARLIER",
+        name: "brief.pdf",
+        mimetype: "application/pdf",
+        size: bytes.length,
+        privateDownloadUrl: url,
+      },
+    ]);
+
+    await h.mention({ eventId: "Ev_THREAD_FILE", files: [] });
+
+    const workspace = h.engine.startedSessions[0]!.workingDirectory;
+    const ingested = path.join(
+      workspace,
+      ".open-agent",
+      "inputs",
+      "Ev_THREAD_FILE",
+      "brief.pdf",
+    );
+    await expect(readFile(ingested)).resolves.toEqual(bytes);
+    expect(h.engine.turns[0]).toContain(ingested);
+    expect(h.engine.turns[0]).toContain("Files shared in this Slack Thread");
+    expect(h.slack.threadFileQueries).toEqual([
+      {
+        thread: { channel: "C_GENERAL", ts: DEFAULT_THREAD_TS },
+        latestMessageTs: "1700000001.000200",
+      },
+    ]);
+  });
+
+  it("does not let an old unsupported Thread file block later work", async () => {
+    const h = await coworkerHarness();
+    h.slack.threadFilesByThread.set(DEFAULT_THREAD_TS, [
+      {
+        id: "F_OLD_SKETCH",
+        name: "old-design.sketch",
+        mimetype: "application/x-sketch",
+        size: 100,
+        privateDownloadUrl:
+          "https://files.slack.com/files-pri/T_TEST-F_OLD_SKETCH/old-design.sketch",
+      },
+    ]);
+
+    await h.mention({ eventId: "Ev_AFTER_SKETCH", files: [] });
+
+    expect(h.engine.turns).toHaveLength(1);
+    expect(h.slack.downloadAttempts).toHaveLength(0);
+    expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toContain("Done.");
   });
 
   it("rejects Slack's HTML sign-in page instead of writing it as the attachment", async () => {
@@ -111,8 +170,13 @@ describe("files carried into a Job from Slack", () => {
     expect(h.engine.turns[0]).toContain(safePath);
   });
 
-  it("fails honestly for an image type the headless engine has not been verified to read", async () => {
+  it("downloads an attached image and passes it to Codex as a visual input", async () => {
     const h = await coworkerHarness();
+    const url = "https://files.slack.com/files-pri/T_TEST-F_IMAGE/dashboard.png";
+    const bytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    h.slack.downloadableFiles.set(url, { bytes, contentType: "image/png" });
 
     await h.mention({
       eventId: "Ev_IMAGE",
@@ -121,16 +185,59 @@ describe("files carried into a Job from Slack", () => {
           id: "F_IMAGE",
           name: "dashboard.png",
           mimetype: "image/png",
-          size: 100,
-          url_private_download: "https://files.slack.com/files-pri/T_TEST-F_IMAGE/dashboard.png",
+          size: bytes.length,
+          url_private_download: url,
         },
       ],
     } as Parameters<typeof h.mention>[0]);
 
-    expect(h.slack.downloadAttempts).toHaveLength(0);
-    expect(h.engine.turns).toHaveLength(0);
-    expect(h.slack.textsIn("1700000000.000100").join("\n")).toContain(
-      "I cannot read dashboard.png (image/png)",
+    const workspace = h.engine.startedSessions[0]!.workingDirectory;
+    const imagePath = path.join(
+      workspace,
+      ".open-agent",
+      "inputs",
+      "Ev_IMAGE",
+      "dashboard.png",
+    );
+    await expect(readFile(imagePath)).resolves.toEqual(bytes);
+    expect(h.engine.ranTurns[0]).toEqual(
+      expect.objectContaining({ imagePaths: [imagePath] }),
+    );
+    expect(h.engine.turns[0]).toContain(imagePath);
+  });
+
+  it("uses the filename to recognize a visual input when Slack reports a generic MIME type", async () => {
+    const h = await coworkerHarness();
+    const url = "https://files.slack.com/files-pri/T_TEST-F_JPEG/screenshot.jpg";
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    h.slack.downloadableFiles.set(url, {
+      bytes,
+      contentType: "application/octet-stream",
+    });
+
+    await h.mention({
+      eventId: "Ev_GENERIC_IMAGE",
+      files: [
+        {
+          id: "F_JPEG",
+          name: "screenshot.jpg",
+          mimetype: "application/octet-stream",
+          size: bytes.length,
+          url_private_download: url,
+        },
+      ],
+    } as Parameters<typeof h.mention>[0]);
+
+    const workspace = h.engine.startedSessions[0]!.workingDirectory;
+    const imagePath = path.join(
+      workspace,
+      ".open-agent",
+      "inputs",
+      "Ev_GENERIC_IMAGE",
+      "screenshot.jpg",
+    );
+    expect(h.engine.ranTurns[0]).toEqual(
+      expect.objectContaining({ imagePaths: [imagePath] }),
     );
   });
 
@@ -141,9 +248,9 @@ describe("files carried into a Job from Slack", () => {
       eventId: "Ev_DISGUISED_IMAGE",
       files: [
         {
-          id: "F_DISGUISED_IMAGE",
+          id: "F_DISGUISED_SKETCH",
           name: "dashboard.csv",
-          mimetype: "image/png",
+          mimetype: "application/x-sketch",
           size: 100,
           url_private_download:
             "https://files.slack.com/files-pri/T_TEST-F_IMAGE/dashboard.csv",
@@ -154,7 +261,7 @@ describe("files carried into a Job from Slack", () => {
     expect(h.slack.downloadAttempts).toHaveLength(0);
     expect(h.engine.turns).toHaveLength(0);
     expect(h.slack.textsIn("1700000000.000100").join("\n")).toContain(
-      "I cannot read dashboard.csv (image/png)",
+      "I cannot read dashboard.csv (application/x-sketch)",
     );
   });
 
@@ -182,7 +289,7 @@ describe("files carried into a Job from Slack", () => {
     } as Parameters<typeof h.mention>[0]);
 
     expect(h.engine.librarianPrompts[0]).toContain("source.csv");
-    expect(h.engine.librarianPrompts[0]).toContain("Slack attachment");
+    expect(h.engine.librarianPrompts[0]).toContain("Slack Thread files");
     expect(await readFile(path.join(h.notesDir, "Retention.md"), "utf8")).toContain(
       'source-files: ["source.csv"]',
     );

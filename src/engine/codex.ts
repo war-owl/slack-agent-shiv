@@ -221,7 +221,17 @@ function codexSession(thread: Thread): EngineSession {
         // SDK kills the child when its own stream is closed. Both routes matter: one
         // is the bound firing, the other is the Job deciding it has heard enough.
         const signal = options?.signal;
-        const { events } = await thread.runStreamed(prompt, signal ? { signal } : {});
+        const input =
+          options?.imagePaths === undefined || options.imagePaths.length === 0
+            ? prompt
+            : [
+                { type: "text" as const, text: prompt },
+                ...options.imagePaths.map((imagePath) => ({
+                  type: "local_image" as const,
+                  path: imagePath,
+                })),
+              ];
+        const { events } = await thread.runStreamed(input, signal ? { signal } : {});
         for await (const event of events) {
           yield* translate(event);
         }

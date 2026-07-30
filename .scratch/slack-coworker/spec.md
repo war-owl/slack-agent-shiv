@@ -91,7 +91,8 @@ precisely which token scopes to issue, which to withhold, and why.
 
 ### Data, Skills, and analysis
 
-40b. As a delegator, I want to attach a CSV or a log dump to my mention and have the coworker work on the file itself, so that I am not pasting data into a message and hoping it survives.
+40b. As a delegator, I want to share a file or image in a Thread and have a later mention
+use it, so that relevant context is not limited to attachments on the triggering message.
 40c. As a delegator, I want it to analyse data by writing and running a script rather than reasoning over the rows in its head, so that the answer is computed rather than estimated.
 40d. As a delegator, I want to be told honestly when it cannot read a file I attached, so that I do not receive confident analysis of something it never opened.
 40e. As a vault owner, I want to write a **Skill** — a procedure it should follow, like how to query a reporting database — as an ordinary Markdown file I edit in Obsidian, so that teaching it something requires no code.
@@ -307,7 +308,11 @@ Two consequences the implementation must carry rather than quietly soften:
 
 ### File ingress
 
-A mention carrying attachments lands those files inside the Job's sandbox workspace before the engine starts, and the prompt names each one, its path, and its type. Without this the only ingress is pasted message text, which caps useful data at a few kilobytes and mangles anything tabular.
+A mention collects supported files shared in its Thread up to and including the triggering
+message, lands them inside the Job's sandbox workspace before the engine starts, and names
+each path and type in the prompt. This includes files shared in earlier replies rather than
+only attachments on the mention itself. Without this the only ingress is pasted message
+text, which caps useful data at a few kilobytes and mangles anything tabular.
 
 The design intent is that the coworker **writes and runs a script** against the file rather than reasoning over rows in-context — which is the main reason a coding agent is a defensible engine for non-code work.
 
@@ -323,8 +328,9 @@ Requirements that are not obvious:
 **Ingress is not memory** — a file is input to one Job. If it matters, the Librarian writes a Note *about* it; raw files do not enter the Vault. **Egress is explicit:** the coworker places a result in its Job-specific output directory, the wrapper uploads it to the Thread, and a permanent Write receipt follows.
 
 Slack's official event types confirm attachment metadata and private download URLs.
-`files:read` is required for ingress and `files:write` for result uploads. Images remain
-unsupported until a real headless Codex run proves it can read them.
+`conversations.replies` provides the Thread's paginated file history; `files:read` is
+required for ingress and `files:write` for result uploads. Supported images are passed as
+Codex SDK `local_image` inputs as well as being named in the prompt.
 
 ### Slack specifics
 

@@ -92,7 +92,8 @@ are checked on disk before upload.
 
 Our Slack app needs `files:read` to download private attachment URLs and `files:write` to
 share result artifacts. Changing either scope requires reinstalling the app in the
-workspace.
+workspace. The existing conversation-history scopes let the coworker retrieve supported
+files from earlier replies in the same Thread through `conversations.replies`.
 
 ### `engine`
 

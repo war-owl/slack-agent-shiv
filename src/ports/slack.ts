@@ -1,3 +1,4 @@
+import type { MentionFile } from "../files/types.ts";
 import type { Thread } from "../thread.ts";
 
 /**
@@ -45,6 +46,12 @@ export interface DownloadedFile {
   contentType: string | undefined;
 }
 
+export interface ListThreadFiles {
+  thread: Thread;
+  /** Do not let a queued Job absorb files posted after the mention that created it. */
+  latestMessageTs: string;
+}
+
 export interface UploadFile {
   thread: Thread;
   filename: string;
@@ -78,6 +85,8 @@ export interface SlackClient {
   identity(): Promise<SlackIdentity>;
   /** Fetch a private Slack file with the bot token. */
   downloadFile(file: DownloadFile): Promise<DownloadedFile>;
+  /** Retrieve files shared in the Thread up to and including the triggering message. */
+  listThreadFiles(query: ListThreadFiles): Promise<readonly MentionFile[]>;
   /** Upload an artifact and share it directly into the originating Thread. */
   uploadFile(file: UploadFile): Promise<UploadedFile>;
   postMessage(message: PostMessage): Promise<PostedMessage>;

@@ -1,4 +1,5 @@
 import { RECORDED_CODEX_VERSION } from "../../src/config.ts";
+import type { MentionFile } from "../../src/files/types.ts";
 import type { Clock, Stoppable } from "../../src/ports/clock.ts";
 import type {
   Engine,
@@ -16,6 +17,7 @@ import type {
 import type {
   DownloadFile,
   DownloadedFile,
+  ListThreadFiles,
   PostMessage,
   PostedMessage,
   SetStatus,
@@ -72,6 +74,9 @@ export class FakeSlack implements SlackClient {
   /** Private Slack URLs this fake can serve, by exact address. */
   readonly downloadableFiles = new Map<string, DownloadedFile>();
   readonly downloadAttempts: DownloadFile[] = [];
+  /** Files Slack history says were shared earlier in a Thread. */
+  readonly threadFilesByThread = new Map<string, MentionFile[]>();
+  readonly threadFileQueries: ListThreadFiles[] = [];
   /** Every result artifact shared into Slack. */
   readonly uploads: FileUploadCall[] = [];
   /** Set to make the next `postMessage` fail, as a Slack outage would. */
@@ -121,6 +126,11 @@ export class FakeSlack implements SlackClient {
     const found = this.downloadableFiles.get(file.url);
     if (found === undefined) throw new Error(`No fake Slack file exists at ${file.url}`);
     return found;
+  }
+
+  async listThreadFiles(query: ListThreadFiles): Promise<readonly MentionFile[]> {
+    this.threadFileQueries.push(query);
+    return this.threadFilesByThread.get(query.thread.ts) ?? [];
   }
 
   async uploadFile(file: UploadFile): Promise<UploadedFile> {
@@ -217,6 +227,8 @@ export type EngineScript = (context: {
 /** One Turn the fake engine was asked to run. */
 export interface FakeTurn {
   prompt: string;
+  /** Local images attached to this Turn through the engine's visual-input channel. */
+  imagePaths: readonly string[];
   /** The Session it ran in — the same value a real Codex would report as its id. */
   sessionId: string;
   /**
@@ -330,7 +342,12 @@ export class FakeEngine implements Engine {
         return id;
       },
       run(prompt: string, runOptions?: RunOptions): AsyncIterable<EngineEvent> {
-        const turn: FakeTurn = { prompt, sessionId, aborted: false };
+        const turn: FakeTurn = {
+          prompt,
+          sessionId,
+          imagePaths: runOptions?.imagePaths ?? [],
+          aborted: false,
+        };
         kind.into.push(turn);
         engine.settleWaiters();
         id = sessionId;

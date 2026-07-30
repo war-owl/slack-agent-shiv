@@ -1,4 +1,5 @@
 import type { Coworker, Mention, StartedJob } from "../coworker.ts";
+import type { MentionFile } from "../files/types.ts";
 import type { Logger } from "../ports/log.ts";
 
 /**
@@ -89,16 +90,21 @@ function toMention(
       // A mention that starts a thread has no `thread_ts`; its own `ts` becomes one.
       ts: event.thread_ts ?? event.ts,
     },
+    messageTs: event.ts,
     userId: event.user ?? "unknown",
     text: event.text ?? "",
     // Preserve incomplete file objects too. Dropping one would let the Job run as if the
     // user had attached nothing; normalizing missing fields makes ingress fail honestly.
-    files: (event.files ?? []).map((file) => ({
-      id: file.id ?? "unknown",
-      name: file.name ?? `Slack file ${file.id ?? "unknown"}`,
-      mimetype: file.mimetype ?? "unknown",
-      size: file.size ?? 0,
-      privateDownloadUrl: file.url_private_download ?? "",
-    })),
+    files: (event.files ?? []).map(toMentionFile),
+  };
+}
+
+export function toMentionFile(file: AppMentionFile): MentionFile {
+  return {
+    id: file.id ?? "unknown",
+    name: file.name ?? `Slack file ${file.id ?? "unknown"}`,
+    mimetype: file.mimetype ?? "unknown",
+    size: file.size ?? 0,
+    privateDownloadUrl: file.url_private_download ?? "",
   };
 }

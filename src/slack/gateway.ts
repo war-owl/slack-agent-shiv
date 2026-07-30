@@ -4,6 +4,7 @@ import type { Logger } from "../ports/log.ts";
 import type {
   DownloadFile,
   DownloadedFile,
+  ListThreadFiles,
   PostMessage,
   PostedMessage,
   SetStatus,
@@ -13,7 +14,7 @@ import type {
   UploadedFile,
   UploadFile,
 } from "../ports/slack.ts";
-import type { MentionGateway } from "./mentions.ts";
+import { toMentionFile, type MentionGateway } from "./mentions.ts";
 
 /**
  * Bolt, Socket Mode, and the `app_mention` subscription.
@@ -67,6 +68,26 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
         bytes: Buffer.from(await response.arrayBuffer()),
         contentType: response.headers.get("content-type") ?? undefined,
       };
+    },
+
+    async listThreadFiles(query: ListThreadFiles) {
+      const files = [];
+      let cursor: string | undefined;
+      do {
+        const result = await app.client.conversations.replies({
+          channel: query.thread.channel,
+          ts: query.thread.ts,
+          latest: query.latestMessageTs,
+          inclusive: true,
+          limit: 200,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        for (const message of result.messages ?? []) {
+          for (const file of message.files ?? []) files.push(toMentionFile(file));
+        }
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor !== undefined);
+      return files;
     },
 
     async uploadFile(file: UploadFile): Promise<UploadedFile> {

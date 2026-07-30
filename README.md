@@ -48,10 +48,11 @@ the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in
 
 ## Files in and out
 
-Attach a CSV, log, JSON export, document, archive, or database file to the message that
-mentions the coworker. It downloads the private Slack file into that Job's workspace,
-checks the configured size ceiling, and names the exact path and declared type in the
-prompt. Images are rejected honestly until the headless engine's image support is verified.
+Share a CSV, log, JSON export, document, archive, database, or image anywhere in a Slack
+Thread, then mention the coworker. It retrieves supported files from the Thread up to that
+mention, downloads them into the Job's workspace, checks the configured size ceiling, and
+names their exact paths and declared types in the prompt. PNG, JPEG, GIF, and WebP files
+are also attached to Codex as visual inputs.
 
 When a result is better as a file, the coworker writes it into the Job-specific output
 directory named in its prompt. The wrapper uploads every regular file there back into the

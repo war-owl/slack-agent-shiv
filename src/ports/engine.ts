@@ -80,6 +80,11 @@ export interface SessionOptions {
 
 export interface RunOptions {
   /**
+   * Local images that must be attached as visual inputs, not merely named in the text
+   * prompt. The Codex adapter translates these to SDK `local_image` entries.
+   */
+  imagePaths?: readonly string[] | undefined;
+  /**
    * Stop the Turn, killing the engine's process.
    *
    * The engine offers no ceiling of its own — no timeout, no max-Turns, no budget,

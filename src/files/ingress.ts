@@ -58,25 +58,29 @@ function assertSlackDownloadUrl(file: MentionFile): void {
 }
 
 function assertSupported(file: MentionFile): void {
-  const extension = path.extname(file.name).toLowerCase();
-  if (file.mimetype.startsWith("text/") || SUPPORTED_MIME_TYPES.has(file.mimetype)) {
-    return;
-  }
-  // Slack sometimes reports an otherwise useful file as a generic binary. Only that
-  // non-claim may fall back to the filename; an explicit `image/png` must not be
-  // overridden by the attacker-controlled name `dashboard.csv`.
-  if (
-    (file.mimetype === "" ||
-      file.mimetype === "unknown" ||
-      file.mimetype === "application/octet-stream") &&
-    SUPPORTED_EXTENSIONS.has(extension)
-  ) {
-    return;
-  }
+  if (supportsMentionFile(file)) return;
   throw new Error(
     `I cannot read ${file.name} (${file.mimetype || "unknown type"}). ` +
-      "Attach a text, data, document, archive, or database file instead.",
+      "Attach a supported text, data, document, archive, database, or image file instead.",
   );
+}
+
+export function supportsMentionFile(file: MentionFile): boolean {
+  const extension = path.extname(file.name).toLowerCase();
+  const mimetype = file.mimetype.toLowerCase();
+  if (mimetype.startsWith("text/") || SUPPORTED_MIME_TYPES.has(mimetype)) {
+    return true;
+  }
+  // Slack sometimes reports an otherwise useful file as a generic binary. Only that
+  // non-claim may fall back to the filename; an explicit `application/x-sketch` must
+  // not be overridden by the attacker-controlled name `dashboard.csv`.
+  if (
+    GENERIC_MIME_TYPES.has(mimetype) &&
+    SUPPORTED_EXTENSIONS.has(extension)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 const SUPPORTED_MIME_TYPES = new Set([
@@ -85,9 +89,17 @@ const SUPPORTED_MIME_TYPES = new Set([
   "application/json",
   "application/ld+json",
   "application/pdf",
+  "application/msword",
+  "application/rtf",
   "application/sql",
   "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.oasis.opendocument.presentation",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/x-7z-compressed",
   "application/x-gzip",
   "application/x-ndjson",
@@ -97,25 +109,42 @@ const SUPPORTED_MIME_TYPES = new Set([
   "application/xml",
   "application/yaml",
   "application/zip",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
 ]);
 
 const SUPPORTED_EXTENSIONS = new Set([
   ".7z",
   ".csv",
   ".db",
+  ".doc",
+  ".docx",
   ".gz",
+  ".gif",
+  ".jpeg",
+  ".jpg",
   ".json",
   ".jsonl",
   ".log",
   ".md",
   ".ndjson",
+  ".odp",
+  ".ods",
+  ".odt",
   ".pdf",
+  ".png",
+  ".ppt",
+  ".pptx",
+  ".rtf",
   ".sql",
   ".sqlite",
   ".sqlite3",
   ".tar",
   ".tsv",
   ".txt",
+  ".webp",
   ".xls",
   ".xlsx",
   ".xml",
@@ -123,6 +152,25 @@ const SUPPORTED_EXTENSIONS = new Set([
   ".yml",
   ".zip",
 ]);
+
+export function isVisualInput(file: IngestedFile): boolean {
+  const mimetype = file.mimetype.toLowerCase();
+  return (
+    VISUAL_MIME_TYPES.has(mimetype) ||
+    (GENERIC_MIME_TYPES.has(mimetype) &&
+      VISUAL_EXTENSIONS.has(path.extname(file.path).toLowerCase()))
+  );
+}
+
+const VISUAL_MIME_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+const GENERIC_MIME_TYPES = new Set(["", "unknown", "application/octet-stream"]);
+const VISUAL_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
 
 function assertDownloaded(
   file: MentionFile,
