@@ -200,23 +200,32 @@ new destructive MCP tool is available until somebody adds its exact name to the 
 Linear has no repository-shaped third layer at all and always runs on policy and the MCP
 deny-list alone.
 
-The same list configures code checkouts. Before a Job starts, each repository is fetched
-from its canonical `https://github.com/owner/repository.git` URL into
-`<workspace>/repositories/owner/repository`. Every Thread has its own working tree, so Jobs
-in different Threads can edit and test concurrently without changing each other's branch;
-follow-ups in one Thread keep that Thread's checkout. The wrapper fetches remote state before
-each Job but does not reset the current branch or discard work.
+The same list makes code checkouts available on demand. Before a Job starts, the wrapper
+writes a small `checkout owner/repository` command into the Thread workspace and tells the
+engine which repositories it may select. It performs **no Git operation at that point**.
+A normal conversation therefore does not clone, fetch, or depend on GitHub repository
+availability.
+
+When a task actually needs local code search, edits, or tests, the coworker runs the command
+for exactly the repository it needs. The command materializes it from the canonical
+`https://github.com/owner/repository.git` URL into
+`<workspace>/repositories/owner/repository`, or fetches it if that Thread already has the
+checkout. Every Thread has its own working tree, so Jobs in different Threads can edit and
+test concurrently without changing each other's branch; follow-ups in one Thread keep that
+Thread's checkout. Fetching never resets the current branch or discards work.
 
 Git uses the same fine-grained token named by the GitHub MCP entry. A checkout-local
 credential helper reads that environment variable when Git asks for GitHub credentials; the
 token is never written into the remote URL, repository configuration, or helper file. The
-helper and the `pre-push` hook are re-installed before every Job because the checkout is
-writable and a previous Job could have changed either.
+helper and the `pre-push` hook are re-installed every time the on-demand command prepares a
+checkout because the checkout is writable and a previous Job could have changed either.
 
-The engine is told every repository name, checkout path, and default branch in the Job
-prompt. Code search, edits, tests, commits, and branch push happen through the local
-checkout. Opening the pull request remains a call to the official GitHub MCP server's
-`create_pull_request`, so it carries the exact linked MCP audit record.
+The Job prompt lists the configured repository names and the on-demand command, not paths to
+working trees that may not exist. It explicitly reserves checkout for local code work;
+repository metadata and ordinary conversation use no checkout. Once selected, code search,
+edits, tests, commits, and branch push happen through the local checkout. Opening the pull
+request remains a call to the official GitHub MCP server's `create_pull_request`, so it
+carries the exact linked MCP audit record.
 
 ### GitHub through `mcp.json`
 

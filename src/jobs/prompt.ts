@@ -1,5 +1,5 @@
 import type { Mention } from "../coworker.ts";
-import type { PreparedRepository } from "../repositories/checkout.ts";
+import type { RepositoryAccess } from "../repositories/checkout.ts";
 import { rootForPrompt, type RootNote } from "../vault/root.ts";
 import { skillsForPrompt, type Skill } from "../vault/skills.ts";
 import { taskIn } from "./request.ts";
@@ -54,8 +54,8 @@ export interface PromptContext {
    * from the Thread while the Note that settles it sits unread (ADR-0003).
    */
   root: RootNote;
-  /** Per-Thread working trees prepared before the engine starts. */
-  repositories: readonly PreparedRepository[];
+  /** Configured repositories plus the command that materializes one on demand. */
+  repositoryAccess: RepositoryAccess;
 }
 
 export function buildJobPrompt(mention: Mention, context: PromptContext): string {
@@ -68,7 +68,7 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     `From: <@${mention.userId}>`,
     "",
     ...vaultSection(context),
-    ...repositorySection(context.repositories),
+    ...repositorySection(context.repositoryAccess),
     "",
     ...(context.queuedDuringPreviousJob ? [QUEUED_NOTE, ""] : []),
     "Their message:",
@@ -80,19 +80,20 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
   ].join("\n");
 }
 
-function repositorySection(repositories: readonly PreparedRepository[]): string[] {
-  if (repositories.length === 0) return [];
+function repositorySection(access: RepositoryAccess): string[] {
+  if (access.checkoutCommand === undefined) return [];
   return [
     "",
-    "Your configured code repositories are checked out here:",
-    ...repositories.map(
-      (repository) =>
-        `- ${repository.repository}: \`${repository.checkout}\` (default branch: ` +
-        `${repository.defaultBranch})`,
-    ),
+    "These code repositories are available, but none is checked out automatically:",
+    ...access.repositories.map((repository) => `- ${repository}`),
     "",
-    "Work in these local checkouts for code search, edits, and tests. Push a feature branch",
-    "with git, then use GitHub's `create_pull_request` MCP tool to open the pull request.",
+    "Only when this task requires local code search, edits, or tests, prepare exactly the",
+    `repository you need by running \`${access.checkoutCommand} owner/repository\`.`,
+    "The command prints the checkout path. Do not run it for normal conversation or work",
+    "that GitHub's MCP tools can do without a local working tree.",
+    "",
+    "For code changes, work in that checkout, push a feature branch with git, then use",
+    "GitHub's `create_pull_request` MCP tool to open the pull request.",
   ];
 }
 

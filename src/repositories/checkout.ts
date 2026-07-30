@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import { installGitSafetyHook } from "../git/safety.ts";
@@ -9,6 +10,9 @@ const run = promisify(execFile);
 const CHECKOUTS_DIR = "repositories";
 const OPEN_AGENT_HOOKS_DIR = ".open-agent-hooks";
 const CREDENTIAL_HELPER = "git-credential-open-agent";
+const CHECKOUT_COMMAND_DIR = ".open-agent";
+const CHECKOUT_COMMAND = "checkout";
+const CHECKOUT_CONFIG = "repositories.json";
 
 export interface PreparedRepository {
   repository: string;
@@ -17,90 +21,115 @@ export interface PreparedRepository {
 }
 
 /**
- * Give one Thread its own persistent checkout of every configured repository.
+ * The capability handed to a Job before it starts.
  *
- * Threads run concurrently, so they cannot share a working tree. Keeping each checkout
- * under that Thread's workspace makes the sandbox boundary and the concurrency boundary
- * the same thing, while a follow-up in the Thread finds the branch and files left before.
+ * It names what can be checked out and how to ask for one, but performs no Git operation.
+ * That distinction is the point: a normal conversation must not depend on repository
+ * availability merely because the instance also handles code work.
  */
-export async function prepareRepositories(options: {
+export interface RepositoryAccess {
+  repositories: readonly string[];
+  checkoutCommand: string | undefined;
+}
+
+export async function installCheckoutCommand(options: {
   workspace: string;
   repositories: readonly string[];
   credentialEnvVar: string | undefined;
-  env: NodeJS.ProcessEnv;
   remoteFor?: ((repository: string) => string) | undefined;
-}): Promise<PreparedRepository[]> {
-  const prepared: PreparedRepository[] = [];
-  for (const repository of options.repositories) {
-    const parsed = parseRepositoryName(repository);
-    const checkout = path.join(
-      options.workspace,
-      CHECKOUTS_DIR,
-      parsed.owner,
-      parsed.name,
-    );
-    const remote =
-      options.remoteFor?.(repository) ??
-      `https://github.com/${parsed.owner}/${parsed.name}.git`;
-    await prepareRepository({
-      checkout,
-      repository,
-      remote,
-      credentialEnvVar: options.credentialEnvVar,
-      env: options.env,
-    });
-    prepared.push({
-      repository,
-      checkout,
-      defaultBranch: await defaultBranchAt(checkout, options.env),
-    });
+}): Promise<RepositoryAccess> {
+  if (options.repositories.length === 0) {
+    return { repositories: [], checkoutCommand: undefined };
   }
-  return prepared;
+
+  const commandRoot = path.join(options.workspace, CHECKOUT_COMMAND_DIR);
+  const command = path.join(commandRoot, "bin", CHECKOUT_COMMAND);
+  const config = path.join(commandRoot, CHECKOUT_CONFIG);
+  await mkdir(path.dirname(command), { recursive: true });
+  await writeFile(
+    config,
+    JSON.stringify(
+      {
+        workspace: options.workspace,
+        credentialEnvVar: options.credentialEnvVar,
+        repositories: Object.fromEntries(
+          options.repositories.map((repository) => {
+            const parsed = parseRepositoryName(repository);
+            return [
+              repository,
+              options.remoteFor?.(repository) ??
+                `https://github.com/${parsed.owner}/${parsed.name}.git`,
+            ];
+          }),
+        ),
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+  await writeFile(command, checkoutCommand(config), "utf8");
+  await chmod(command, 0o755);
+  return { repositories: [...options.repositories], checkoutCommand: command };
 }
 
-async function prepareRepository(options: {
-  checkout: string;
+/**
+ * Materialize or refresh exactly one configured repository.
+ *
+ * The command module calls this only after the engine has decided local code access is
+ * required. The checkout remains under the Thread workspace, so concurrent Threads never
+ * share a working tree and a follow-up in one Thread finds its earlier branch and files.
+ */
+export async function prepareRepositoryCheckout(options: {
+  workspace: string;
   repository: string;
   remote: string;
   credentialEnvVar: string | undefined;
   env: NodeJS.ProcessEnv;
-}): Promise<void> {
-  const gitDirectory = path.join(options.checkout, ".git");
+}): Promise<PreparedRepository> {
+  const parsed = parseRepositoryName(options.repository);
+  const checkout = path.join(
+    options.workspace,
+    CHECKOUTS_DIR,
+    parsed.owner,
+    parsed.name,
+  );
+  const gitDirectory = path.join(checkout, ".git");
   if (!(await exists(gitDirectory))) {
-    await mkdir(options.checkout, { recursive: true });
-    await git(options.env, "init", options.checkout);
-    await git(options.env, "-C", options.checkout, "remote", "add", "origin", options.remote);
+    await mkdir(checkout, { recursive: true });
+    await git(options.env, "init", checkout);
+    await git(options.env, "-C", checkout, "remote", "add", "origin", options.remote);
   } else {
     const configured = await git(
       options.env,
       "-C",
-      options.checkout,
+      checkout,
       "remote",
       "get-url",
       "origin",
     );
     if (configured !== options.remote) {
       throw new Error(
-        `The checkout for ${options.repository} at ${options.checkout} points at ` +
+        `The checkout for ${options.repository} at ${checkout} points at ` +
           `${configured}, not ${options.remote}. It was left untouched.`,
       );
     }
   }
 
   await installCredentialHelper({
-    checkout: options.checkout,
+    checkout,
     credentialEnvVar: options.credentialEnvVar,
     env: options.env,
   });
-  await git(options.env, "-C", options.checkout, "fetch", "--prune", "origin");
-  await git(options.env, "-C", options.checkout, "remote", "set-head", "origin", "--auto");
+  await git(options.env, "-C", checkout, "fetch", "--prune", "origin");
+  await git(options.env, "-C", checkout, "remote", "set-head", "origin", "--auto");
 
-  const branch = await defaultBranchAt(options.checkout, options.env);
-  if (!(await hasLocalBranch(options.checkout, branch, options.env))) {
+  const branch = await defaultBranchAt(checkout, options.env);
+  if (!(await hasLocalBranch(checkout, branch, options.env))) {
     await git(
       options.env,
       "-C",
-      options.checkout,
+      checkout,
       "switch",
       "--track",
       "-c",
@@ -111,7 +140,16 @@ async function prepareRepository(options: {
 
   // Re-imposed on every Job. The checkout is writable by the agent, so trusting the copy
   // left by the previous Job would turn an editable hook into a one-time promise.
-  await installGitSafetyHook({ checkout: options.checkout, defaultBranch: branch });
+  await installGitSafetyHook({ checkout, defaultBranch: branch });
+  return { repository: options.repository, checkout, defaultBranch: branch };
+}
+
+function checkoutCommand(config: string): string {
+  const module = fileURLToPath(new URL("./checkout-command.ts", import.meta.url));
+  return `#!/usr/bin/env bash
+set -euo pipefail
+exec ${shellSingleQuote(process.execPath)} --experimental-strip-types ${shellSingleQuote(module)} ${shellSingleQuote(config)} "$@"
+`;
 }
 
 async function installCredentialHelper(options: {

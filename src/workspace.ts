@@ -3,8 +3,8 @@ import path from "node:path";
 import { OPERATING_MANUAL_MAX_BYTES, type Config } from "./config.ts";
 import type { Logger } from "./ports/log.ts";
 import {
-  prepareRepositories,
-  type PreparedRepository,
+  installCheckoutCommand,
+  type RepositoryAccess,
 } from "./repositories/checkout.ts";
 import type { Thread } from "./thread.ts";
 
@@ -27,10 +27,9 @@ export async function prepareWorkspace(
   thread: Thread,
   log: Logger,
   options: {
-    env: NodeJS.ProcessEnv;
     remoteFor?: ((repository: string) => string) | undefined;
   },
-): Promise<{ directory: string; repositories: PreparedRepository[] }> {
+): Promise<{ directory: string; repositoryAccess: RepositoryAccess }> {
   const directory = path.join(
     config.workspaceRoot,
     `${slug(thread.channel)}-${slug(thread.ts)}`,
@@ -51,15 +50,14 @@ export async function prepareWorkspace(
   }
   await writeFile(path.join(directory, "AGENTS.md"), manual, "utf8");
 
-  const repositories = await prepareRepositories({
+  const repositoryAccess = await installCheckoutCommand({
     workspace: directory,
     repositories: config.repositories,
     credentialEnvVar: config.repositoryProtectionTokenEnvVar,
-    env: options.env,
     remoteFor: options.remoteFor,
   });
 
-  return { directory, repositories };
+  return { directory, repositoryAccess };
 }
 
 function slug(value: string): string {

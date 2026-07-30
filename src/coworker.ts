@@ -303,7 +303,6 @@ async function runJob(
 
   try {
     const prepared = await prepareWorkspace(deps.config, mention.thread, deps.log, {
-      env: deps.env,
       remoteFor: deps.repositoryRemote,
     });
     const workingDirectory = prepared.directory;
@@ -368,7 +367,7 @@ async function runJob(
       skillsDir: deps.config.skillsDir,
       skills,
       root,
-      repositories: prepared.repositories,
+      repositoryAccess: prepared.repositoryAccess,
     });
 
     try {

@@ -42,8 +42,8 @@ from ordinary authorization failures: only the former degrades to a warning.
 The hook installer writes an executable checkout-local hook and sets `core.hooksPath`.
 A real bare-remote test covers `HEAD:main`, a `+refspec` non-fast-forward, deletion, and
 ordinary new/fast-forward feature pushes. Build/12 now invokes it for every per-Thread
-checkout and re-imposes it before every Job rather than trusting a file the previous Job
-could edit.
+checkout and re-imposes it whenever the on-demand checkout command runs rather than trusting
+a file the previous Job could edit.
 
 Live read-only verification against `shivsarthak/slack-agent` found `main` unprotected and
 named all three missing requirements. The historical destructive verification remains Check

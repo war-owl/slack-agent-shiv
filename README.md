@@ -35,11 +35,13 @@ Configured GitHub repositories are also checked for the server-side default-bran
 boundary. Missing protection warns and continues, distinguishing a fixable missing rule
 from protection unavailable on the current GitHub plan. A checkout-local `pre-push` hook
 blocks default-branch pushes, non-fast-forwards, and deletions as defence-in-depth.
-Each Thread gets its own persistent checkout of those repositories before its Job starts,
-using the GitHub connector's fine-grained token through a credential helper rather than in
-the remote URL. Git owns local search, tests, commits, and feature-branch push; GitHub's
-official MCP server owns pull-request creation, and both actions land in the Thread's audit
-record.
+Each Job is told which repositories are available and gets an on-demand checkout command.
+It runs that command only when the task needs local code search, edits, or tests, and only
+for the selected repository; ordinary conversation performs no clone or fetch. The
+per-Thread checkout persists for follow-ups and uses the GitHub connector's fine-grained
+token through a credential helper rather than in the remote URL. Git owns local search,
+tests, commits, and feature-branch push; GitHub's official MCP server owns pull-request
+creation, and both actions land in the Thread's audit record.
 
 The design lives in [`.scratch/slack-coworker/spec.md`](.scratch/slack-coworker/spec.md),
 the domain language in [`CONTEXT.md`](CONTEXT.md), and the decisions in

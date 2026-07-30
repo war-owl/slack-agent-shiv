@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -69,6 +69,26 @@ function recordsIn(texts: string[]): string[] {
 }
 
 describe("a configured code repository", () => {
+  it("does no Git work during an ordinary conversation", async () => {
+    const fixture = await repositoryFixture();
+    const h = await coworkerHarness({
+      repositories: ["acme/platform"],
+      repositoryRemotes: { "acme/platform": fixture.remote },
+      env: { GITHUB_TOKEN: "github-token-for-test" },
+    });
+
+    await h.mention({ text: "<@U0COWORKER> what did we decide about deployment?" });
+
+    const repositories = path.join(
+      h.workspaceRoot,
+      `C_GENERAL-${DEFAULT_THREAD_TS}`,
+      "repositories",
+    );
+    await expect(stat(repositories)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(h.engine.ranTurns[0]?.prompt).toContain("acme/platform");
+    expect(h.engine.ranTurns[0]?.prompt).toMatch(/only when.*local code/i);
+  });
+
   it("is a usable checkout whose git push and MCP pull request stay in the Thread", async () => {
     const fixture = await repositoryFixture();
     const harnessParent = await testTempDir("open-agent-repository-harness-");
@@ -97,10 +117,24 @@ describe("a configured code repository", () => {
       "acme",
       "platform",
     );
+    const checkoutCommand = path.join(
+      h.workspaceRoot,
+      `C_GENERAL-${DEFAULT_THREAD_TS}`,
+      ".open-agent",
+      "bin",
+      "checkout",
+    );
 
     h.engine.script = async ({ prompt }) => {
       expect(prompt).toContain("acme/platform");
-      expect(prompt).toContain(checkout);
+      expect(prompt).toContain(checkoutCommand);
+      await run(checkoutCommand, ["acme/platform"], {
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: "github-token-for-test",
+          GIT_CONFIG_GLOBAL: globalConfig,
+        },
+      });
       expect(await readFile(path.join(checkout, "repository.test.js"), "utf8")).toContain(
         "assert.ok(true)",
       );
@@ -191,7 +225,20 @@ describe("a configured code repository", () => {
       "acme",
       "platform",
     );
+    const checkoutCommand = path.join(
+      h.workspaceRoot,
+      `C_GENERAL-${DEFAULT_THREAD_TS}`,
+      ".open-agent",
+      "bin",
+      "checkout",
+    );
 
+    h.engine.script = async () => {
+      await run(checkoutCommand, ["acme/platform"], {
+        env: { ...process.env, GITHUB_TOKEN: "github-token-for-test" },
+      });
+      return [{ type: "message", text: "Ready." }];
+    };
     await h.mention();
     const hook = path.join(checkout, ".open-agent-hooks", "pre-push");
     await writeFile(hook, "#!/usr/bin/env bash\nexit 0\n", "utf8");
@@ -207,13 +254,47 @@ describe("a configured code repository", () => {
     await git("-C", updater, "push", "origin", "main");
     const upstream = await git("-C", updater, "rev-parse", "HEAD");
 
-    h.engine.script = () => [{ type: "message", text: "Ready." }];
     await h.mention();
 
     expect(await git("-C", checkout, "rev-parse", "refs/remotes/origin/main")).toBe(upstream);
     expect(await readFile(hook, "utf8")).toContain(
       "blocked: push to protected ref '$remote_ref'",
     );
+  });
+
+  it("materializes only the repository selected for the task", async () => {
+    const platform = await repositoryFixture();
+    const website = await repositoryFixture();
+    const h = await coworkerHarness({
+      repositories: ["acme/platform", "acme/website"],
+      repositoryRemotes: {
+        "acme/platform": platform.remote,
+        "acme/website": website.remote,
+      },
+      env: { GITHUB_TOKEN: "github-token-for-test" },
+    });
+    const workspace = path.join(
+      h.workspaceRoot,
+      `C_GENERAL-${DEFAULT_THREAD_TS}`,
+    );
+    const checkoutCommand = path.join(workspace, ".open-agent", "bin", "checkout");
+    h.engine.script = async ({ prompt }) => {
+      expect(prompt).toContain("acme/platform");
+      expect(prompt).toContain("acme/website");
+      await run(checkoutCommand, ["acme/platform"], {
+        env: { ...process.env, GITHUB_TOKEN: "github-token-for-test" },
+      });
+      return [{ type: "message", text: "Platform is ready." }];
+    };
+
+    await h.mention({ text: "<@U0COWORKER> fix the failing test in acme/platform" });
+
+    await expect(
+      stat(path.join(workspace, "repositories", "acme", "platform", ".git")),
+    ).resolves.toBeDefined();
+    await expect(
+      stat(path.join(workspace, "repositories", "acme", "website")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("keeps distinct owner and repository components from colliding on disk", async () => {
@@ -227,6 +308,22 @@ describe("a configured code repository", () => {
       },
       env: { GITHUB_TOKEN: "github-token-for-test" },
     });
+    const checkoutCommand = path.join(
+      h.workspaceRoot,
+      `C_GENERAL-${DEFAULT_THREAD_TS}`,
+      ".open-agent",
+      "bin",
+      "checkout",
+    );
+    h.engine.script = async () => {
+      await run(checkoutCommand, ["acme-x/platform"], {
+        env: { ...process.env, GITHUB_TOKEN: "github-token-for-test" },
+      });
+      await run(checkoutCommand, ["acme/x-platform"], {
+        env: { ...process.env, GITHUB_TOKEN: "github-token-for-test" },
+      });
+      return [{ type: "message", text: "Ready." }];
+    };
 
     await h.mention();
 
