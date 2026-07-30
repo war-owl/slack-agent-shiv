@@ -25,9 +25,10 @@ reading one, which is measured and written down in
 Startup now checks itself: credentials, versions, and — for any MCP connector you configure
 — that it can be reached, with the known irreversible tools disabled.
 GitHub and Linear use that same connector path. GitHub is configured against GitHub's
-official MCP server; the remaining work is live end-to-end verification
-([build/09](.scratch/slack-coworker/build/09-github-connector.md)) and the Linear workflow
-([build/11](.scratch/slack-coworker/build/11-linear-connector.md)).
+official MCP server; its remaining work is live end-to-end verification
+([build/09](.scratch/slack-coworker/build/09-github-connector.md)). Linear needs no
+connector-specific implementation: its `mcp.json` entry uses the same generic MCP
+configuration, preflight, deny-list, and audit path as every other connector.
 
 Configured GitHub repositories are also checked for the server-side default-branch
 boundary. Missing protection warns and continues, distinguishing a fixable missing rule

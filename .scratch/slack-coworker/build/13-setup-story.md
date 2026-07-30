@@ -7,7 +7,7 @@ coworker against their own Slack, GitHub, and Linear credentials without help.
 [ADR-0007](../../../docs/adr/0007-github-is-an-official-mcp-server.md) removed the GitHub
 App path. Slack keeps its manifest; GitHub and Linear are entries in `mcp.json`.
 
-**Blocked by:** 08 — Preflight; 09 — GitHub MCP; 10 — Branch protection; 11 — Linear
+**Blocked by:** 08 — Preflight; 09 — GitHub MCP; 10 — Branch protection
 
 **Status:** ready-for-agent
 

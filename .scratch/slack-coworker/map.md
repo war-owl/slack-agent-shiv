@@ -10,7 +10,7 @@ v1 is done when a self-hoster can: @-mention the bot in a thread, walk away, and
 
 **The spec exists**: [`spec.md`](spec.md) (`ready-for-agent`) — synthesised from the eleven resolved tickets and five ADRs.
 
-**The build tickets exist**: fifteen tracer-bullet slices in [`build/`](build/), numbered in dependency order. Two were added after charting: [`build/14`](build/14-file-ingress-from-slack.md) carries raw data into a Job, and [`build/15`](build/15-skills.md) adds human-authored procedures for non-MCP capabilities. Kept separate from `issues/` so decision tickets and work tickets do not share a numbering line.
+**The build tickets exist**: fourteen tracer-bullet slices in [`build/`](build/), numbered in dependency order. Two were added after charting: [`build/14`](build/14-file-ingress-from-slack.md) carries raw data into a Job, and [`build/15`](build/15-skills.md) adds human-authored procedures for non-MCP capabilities. Linear travels through the generic MCP path and therefore needs no connector-specific slice. Kept separate from `issues/` so decision tickets and work tickets do not share a numbering line.
 
 **Amended 2026-07-30: GitHub is an ordinary MCP connector.** The intermediate GitHub
 App plus `gh` Skill design in ADR-0006 introduced a second configuration model,
@@ -27,8 +27,10 @@ additions and removals are accepted so connector evolution does not become an ou
 
 The repository seam is again **local `git` for checkout, edits, tests, and push; MCP for
 GitHub metadata, issues, reviews, and pull-request creation**. Skills remain useful for
-systems without an MCP server but are not a parallel connector architecture. The current
-sequence is **08 → 09 → {10, 12} → 11 → 13**; build/15 is independent.
+systems without an MCP server but are not a parallel connector architecture. Linear needs
+no connector-specific build: its configured MCP server already travels through the generic
+configuration, preflight, deny-list, and audit path. The current sequence is
+**08 → 09 → {10, 12} → 13**; build/15 is independent.
 
 **Build/04 left one thing unfinished on purpose, and moved it rather than solving it twice.** Write records are classified from the engine's event stream, which sees file changes and MCP tool calls exactly and shell commands only by pattern — so a Note written with `cp` or `rm` leaves no record. [`build/07`](build/07-the-vault.md) gained a criterion for it, because echoing Note diffs needs a before-and-after snapshot of the Vault anyway, and a snapshot that can diff can also catch what nothing recorded. Measuring the engine first also reshaped the ticket twice: shell calls arrive as `/bin/zsh -lc "…"` with whole `&&` chains in one item, so one command can produce several records — and a chain's exit code cannot say *which* part of it failed, which is why a record states what is known rather than claiming an attempt failed. **Amended 2026-07-30:** every completed MCP call is now recorded, including reads; the per-server write list was removed so upstream additions cannot create silent audit gaps.
 

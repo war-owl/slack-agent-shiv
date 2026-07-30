@@ -113,10 +113,9 @@ second mechanism here.
 - **A connector call with no URL in its result names the tool, not the ticket.**
   "Used linear · `save_comment`" is thin against story 19's "which pull request, which
   ticket, which comment". The SDK carries the call's `arguments` and they were deliberately
-  not mined: the identifier's key differs per tool and per server, and **[build/09](09-github-connector.md)**
-  and **[build/11](11-linear-connector.md)** are the tickets holding real payloads to
-  check against. Guessing at JSON shapes nobody has seen is how a record ends up naming
-  the wrong thing.
+  not mined: the identifier's key differs per tool and per server. The generic MCP path
+  deliberately does not maintain connector-specific payload parsers; guessing at JSON
+  shapes nobody has seen is how a record ends up naming the wrong thing.
 - **The rendering has not been seen in a real workspace.** The cadence and the permanence
   are covered against a fake Slack, and the classification against a real engine, but
   `<url|label>`, the `·` separators and `:receipt:` itself are unverified in a real client
