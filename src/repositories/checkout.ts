@@ -3,6 +3,7 @@ import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { installGitSafetyHook } from "../git/safety.ts";
+import { parseRepositoryName } from "./name.ts";
 
 const run = promisify(execFile);
 const CHECKOUTS_DIR = "repositories";
@@ -10,7 +11,7 @@ const OPEN_AGENT_HOOKS_DIR = ".open-agent-hooks";
 const CREDENTIAL_HELPER = "git-credential-open-agent";
 
 export interface PreparedRepository {
-  name: string;
+  repository: string;
   checkout: string;
   defaultBranch: string;
 }
@@ -31,8 +32,16 @@ export async function prepareRepositories(options: {
 }): Promise<PreparedRepository[]> {
   const prepared: PreparedRepository[] = [];
   for (const repository of options.repositories) {
-    const checkout = path.join(options.workspace, CHECKOUTS_DIR, slug(repository));
-    const remote = options.remoteFor?.(repository) ?? githubRemote(repository);
+    const parsed = parseRepositoryName(repository);
+    const checkout = path.join(
+      options.workspace,
+      CHECKOUTS_DIR,
+      parsed.owner,
+      parsed.name,
+    );
+    const remote =
+      options.remoteFor?.(repository) ??
+      `https://github.com/${parsed.owner}/${parsed.name}.git`;
     await prepareRepository({
       checkout,
       repository,
@@ -41,7 +50,7 @@ export async function prepareRepositories(options: {
       env: options.env,
     });
     prepared.push({
-      name: repository,
+      repository,
       checkout,
       defaultBranch: await defaultBranchAt(checkout, options.env),
     });
@@ -81,6 +90,7 @@ async function prepareRepository(options: {
   await installCredentialHelper({
     checkout: options.checkout,
     credentialEnvVar: options.credentialEnvVar,
+    env: options.env,
   });
   await git(options.env, "-C", options.checkout, "fetch", "--prune", "origin");
   await git(options.env, "-C", options.checkout, "remote", "set-head", "origin", "--auto");
@@ -107,13 +117,36 @@ async function prepareRepository(options: {
 async function installCredentialHelper(options: {
   checkout: string;
   credentialEnvVar: string | undefined;
+  env: NodeJS.ProcessEnv;
 }): Promise<void> {
   const hooks = path.join(options.checkout, OPEN_AGENT_HOOKS_DIR);
   const helper = path.join(hooks, CREDENTIAL_HELPER);
   await mkdir(hooks, { recursive: true });
   await writeFile(helper, credentialHelper(options.credentialEnvVar), "utf8");
   await chmod(helper, 0o755);
-  await git(process.env, "-C", options.checkout, "config", "--replace-all", "credential.helper", helper);
+  // The empty entry resets every helper inherited from system and global config. Without
+  // it, a developer's own GitHub credential can answer first and the configured
+  // fine-grained token is never consulted.
+  await git(
+    options.env,
+    "-C",
+    options.checkout,
+    "config",
+    "--replace-all",
+    "credential.helper",
+    "",
+  );
+  // Git runs a `!` helper as a shell command and appends the operation (`get`, `store`,
+  // `erase`). Quote the absolute path here: instance paths routinely contain spaces.
+  await git(
+    options.env,
+    "-C",
+    options.checkout,
+    "config",
+    "--add",
+    "credential.helper",
+    `!${shellSingleQuote(helper)}`,
+  );
 }
 
 function credentialHelper(variable: string | undefined): string {
@@ -164,7 +197,7 @@ async function hasLocalBranch(
 async function git(env: NodeJS.ProcessEnv, ...args: string[]): Promise<string> {
   const result = await run("git", args, {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...env, GIT_TERMINAL_PROMPT: "0" },
   });
   return result.stdout.trim();
 }
@@ -176,14 +209,6 @@ async function exists(file: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function githubRemote(repository: string): string {
-  return `https://github.com/${repository}.git`;
-}
-
-function slug(repository: string): string {
-  return repository.replace("/", "-");
 }
 
 function shellSingleQuote(value: string): string {

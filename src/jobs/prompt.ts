@@ -87,7 +87,7 @@ function repositorySection(repositories: readonly PreparedRepository[]): string[
     "Your configured code repositories are checked out here:",
     ...repositories.map(
       (repository) =>
-        `- ${repository.name}: \`${repository.checkout}\` (default branch: ` +
+        `- ${repository.repository}: \`${repository.checkout}\` (default branch: ` +
         `${repository.defaultBranch})`,
     ),
     "",

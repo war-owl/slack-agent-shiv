@@ -202,7 +202,7 @@ deny-list alone.
 
 The same list configures code checkouts. Before a Job starts, each repository is fetched
 from its canonical `https://github.com/owner/repository.git` URL into
-`<workspace>/repositories/owner-repository`. Every Thread has its own working tree, so Jobs
+`<workspace>/repositories/owner/repository`. Every Thread has its own working tree, so Jobs
 in different Threads can edit and test concurrently without changing each other's branch;
 follow-ups in one Thread keep that Thread's checkout. The wrapper fetches remote state before
 each Job but does not reset the current branch or discard work.
