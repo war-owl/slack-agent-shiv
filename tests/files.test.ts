@@ -61,7 +61,7 @@ describe("files carried into a Job from Slack", () => {
     await expect(readFile(ingested)).resolves.toEqual(bytes);
     expect(h.engine.turns[0]).toContain(ingested);
     expect(h.engine.turns[0]).toContain("Files shared in this Slack Thread");
-    expect(h.slack.threadFileQueries).toEqual([
+    expect(h.slack.threadQueries).toEqual([
       {
         thread: { channel: "C_GENERAL", ts: DEFAULT_THREAD_TS },
         latestMessageTs: "1700000001.000200",

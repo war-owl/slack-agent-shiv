@@ -380,6 +380,19 @@ describe("the shipped starter Skills", () => {
   });
 });
 
+describe("the shipped operating manual's credential policy", () => {
+  it("does not turn a credential lint into an execution refusal", async () => {
+    const manual = await readFile(
+      path.join(import.meta.dirname, "..", "assets", "operating-manual.md"),
+      "utf8",
+    );
+
+    expect(manual).toMatch(/do not treat its presence alone as a reason to refuse/i);
+    expect(manual).toMatch(/never print it/i);
+    expect(manual).toMatch(/report the unsafe storage after completing the work/i);
+  });
+});
+
 /**
  * The same instance again, with its Skills moved somewhere they cannot stay read-only.
  *

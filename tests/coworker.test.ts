@@ -219,9 +219,6 @@ describe("one Session per Thread", () => {
     expect(h.slack.textsIn(DEFAULT_THREAD_TS)).toContain(
       "Production deploys from `main`, unlike staging.",
     );
-    // The human said "the other one" and nothing more; the wrapper must not have
-    // helpfully pasted the earlier exchange back into the prompt.
-    expect(h.engine.promptFor(1)).not.toContain("staging deploy");
   });
 
   it("remembers the Thread's Session across a restart of the instance", async () => {
@@ -312,6 +309,43 @@ describe("one Session per Thread", () => {
 });
 
 describe("the prompt the engine receives", () => {
+  it("includes the Slack conversation that preceded the mention", async () => {
+    const h = await coworkerHarness();
+    h.slack.threadMessagesByThread.set(DEFAULT_THREAD_TS, [
+      {
+        ts: DEFAULT_THREAD_TS,
+        userId: "U_ALICE",
+        text: "We are discussing the Acme workspace.",
+      },
+      {
+        ts: "1700000042.000200",
+        userId: "U_BOB",
+        text: "We need its user count and email addresses.",
+      },
+      {
+        ts: "1700000042.000300",
+        userId: "U_ASKER",
+        text: `<@${BOT_USER_ID}> can you take a look?`,
+      },
+    ]);
+
+    await h.mention({
+      text: `<@${BOT_USER_ID}> can you take a look?`,
+      ts: "1700000042.000300",
+    });
+
+    const prompt = h.engine.promptFor(0);
+    expect(h.slack.threadQueries).toEqual([
+      {
+        thread: { channel: "C_GENERAL", ts: DEFAULT_THREAD_TS },
+        latestMessageTs: "1700000042.000300",
+      },
+    ]);
+    expect(prompt).toContain("We are discussing the Acme workspace.");
+    expect(prompt).toContain("We need its user count and email addresses.");
+    expect(prompt.match(/can you take a look\?/g)).toHaveLength(1);
+  });
+
   it("carries the task and where it came from, with the @-mention stripped", async () => {
     const h = await coworkerHarness();
 

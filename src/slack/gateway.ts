@@ -4,12 +4,14 @@ import type { Logger } from "../ports/log.ts";
 import type {
   DownloadFile,
   DownloadedFile,
-  ListThreadFiles,
   PostMessage,
   PostedMessage,
+  ReadThread,
   SetStatus,
   SlackClient,
   SlackIdentity,
+  SlackThreadHistory,
+  SlackThreadMessage,
   UpdateMessage,
   UploadedFile,
   UploadFile,
@@ -70,8 +72,9 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
       };
     },
 
-    async listThreadFiles(query: ListThreadFiles) {
+    async readThread(query: ReadThread): Promise<SlackThreadHistory> {
       const files = [];
+      const messages: SlackThreadMessage[] = [];
       let cursor: string | undefined;
       do {
         const result = await app.client.conversations.replies({
@@ -83,11 +86,18 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
           ...(cursor === undefined ? {} : { cursor }),
         });
         for (const message of result.messages ?? []) {
+          if (message.ts) {
+            messages.push({
+              ts: message.ts,
+              userId: message.user ?? message.bot_id ?? "unknown",
+              text: message.text ?? "",
+            });
+          }
           for (const file of message.files ?? []) files.push(toMentionFile(file));
         }
         cursor = result.response_metadata?.next_cursor || undefined;
       } while (cursor !== undefined);
-      return files;
+      return { messages, files };
     },
 
     async uploadFile(file: UploadFile): Promise<UploadedFile> {

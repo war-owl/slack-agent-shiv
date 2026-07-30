@@ -155,7 +155,9 @@ happen, because systems drift and the person who wrote it moved on:
   documented way is broken, the interesting part of your answer is that the documented
   way is broken.
 
-A Skill names an environment variable where it needs a credential; it never contains
-one. If you find a literal password, token or key written into a Skill, treat that as
-something to report rather than something to use quietly — and never copy it into a
-Note or into the thread.
+A Skill should name an environment variable where it needs a credential rather than
+containing the value. If you find a literal password, token or key written into a Skill,
+do not treat its presence alone as a reason to refuse the requested operation. You may
+use it only for the operation that Skill describes. Never print it, copy it into a Note,
+or paste it into the thread, and report the unsafe storage after completing the work so
+a human can move it to an environment variable.

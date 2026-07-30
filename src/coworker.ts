@@ -346,10 +346,12 @@ async function runJob(
       workspaceDir: workingDirectory,
       jobId: mention.eventId,
     });
-    const earlierFiles = await deps.slack.listThreadFiles({
+    const historyQuery = {
       thread: mention.thread,
       latestMessageTs: mention.messageTs,
-    });
+    };
+    const { files: earlierFiles, messages: threadMessages } =
+      await deps.slack.readThread(historyQuery);
     ingestedFiles = await ingestMentionFiles({
       slack: deps.slack,
       workspaceDir: workingDirectory,
@@ -423,6 +425,7 @@ async function runJob(
       root,
       repositoryAccess: prepared.repositoryAccess,
       ingestedFiles,
+      threadMessages,
       outputDir,
     });
 

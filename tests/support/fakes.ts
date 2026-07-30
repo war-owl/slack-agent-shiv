@@ -17,12 +17,14 @@ import type {
 import type {
   DownloadFile,
   DownloadedFile,
-  ListThreadFiles,
   PostMessage,
   PostedMessage,
+  ReadThread,
   SetStatus,
   SlackClient,
   SlackIdentity,
+  SlackThreadHistory,
+  SlackThreadMessage,
   UpdateMessage,
   UploadedFile,
   UploadFile,
@@ -76,7 +78,9 @@ export class FakeSlack implements SlackClient {
   readonly downloadAttempts: DownloadFile[] = [];
   /** Files Slack history says were shared earlier in a Thread. */
   readonly threadFilesByThread = new Map<string, MentionFile[]>();
-  readonly threadFileQueries: ListThreadFiles[] = [];
+  /** Messages Slack history says were posted in a Thread. */
+  readonly threadMessagesByThread = new Map<string, SlackThreadMessage[]>();
+  readonly threadQueries: ReadThread[] = [];
   /** Every result artifact shared into Slack. */
   readonly uploads: FileUploadCall[] = [];
   /** Set to make the next `postMessage` fail, as a Slack outage would. */
@@ -128,9 +132,12 @@ export class FakeSlack implements SlackClient {
     return found;
   }
 
-  async listThreadFiles(query: ListThreadFiles): Promise<readonly MentionFile[]> {
-    this.threadFileQueries.push(query);
-    return this.threadFilesByThread.get(query.thread.ts) ?? [];
+  async readThread(query: ReadThread): Promise<SlackThreadHistory> {
+    this.threadQueries.push(query);
+    return {
+      files: this.threadFilesByThread.get(query.thread.ts) ?? [],
+      messages: this.threadMessagesByThread.get(query.thread.ts) ?? [],
+    };
   }
 
   async uploadFile(file: UploadFile): Promise<UploadedFile> {
