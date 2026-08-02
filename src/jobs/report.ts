@@ -55,7 +55,7 @@ function endingReport(ending: JobEnding): JobReport {
     return {
       outcome: "stopped",
       text: paragraphs([
-        `*Stopped — ${stopSentence(ending.stoppedBy)}*`,
+        `**Stopped — ${stopSentence(ending.stoppedBy)}**`,
         ending.answer.trim() === "" ? undefined : `Where I had got to:\n\n${ending.answer}`,
         ...howFarItGot(ending.plan),
         aftermath(ending.recorded),
@@ -88,7 +88,7 @@ function brokeDown(ending: JobEnding): JobReport {
   return {
     outcome: "stopped",
     text: paragraphs([
-      `*Stopped — I could not finish this: ${mrkdwn(ending.failure ?? "no reason given")}*`,
+      `**Stopped — I could not finish this: ${mrkdwn(ending.failure ?? "no reason given")}**`,
       ...howFarItGot(ending.plan),
       aftermath(ending.recorded),
     ]),
@@ -143,7 +143,7 @@ function howFarItGot(plan: readonly PlanStep[]): string[] {
 }
 
 function list(heading: string, steps: readonly PlanStep[]): string {
-  return [`*${heading}:*`, ...steps.map((step) => `• ${mrkdwn(step.text)}`)].join("\n");
+  return [`**${heading}:**`, ...steps.map((step) => `- ${mrkdwn(step.text)}`)].join("\n");
 }
 
 /**

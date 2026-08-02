@@ -170,7 +170,9 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
       const result = await app.client.chat.postMessage({
         channel: message.thread.channel,
         thread_ts: message.thread.ts,
-        text: message.text,
+        ...(message.format === "markdown"
+          ? { markdown_text: message.text }
+          : { text: message.text }),
       });
       if (!result.ts) {
         throw new Error("Slack accepted the message but returned no ts");
@@ -182,10 +184,12 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
       await app.client.chat.update({
         channel: message.thread.channel,
         ts: message.ts,
-        // `text` only, never `blocks`. Slack's own footgun: passing `text` to
-        // `chat.update` on a message that has blocks *removes* the blocks, so a status
-        // message built from text stays built from text.
-        text: message.text,
+        // Never mix either text field with `blocks`. Slack rejects `markdown_text`
+        // alongside blocks, while updating a block message with `text` removes its
+        // blocks. A message therefore keeps the format it was posted with.
+        ...(message.format === "markdown"
+          ? { markdown_text: message.text }
+          : { text: message.text }),
       });
     },
 

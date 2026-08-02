@@ -608,7 +608,13 @@ async function runJob(
   // Settled before the answer is posted, so the Thread reads in the order it happened
   // and the status has stopped moving by the time anyone reads the result.
   await status.settle(report.outcome);
-  await deps.slack.postMessage({ thread: mention.thread, text: report.text });
+  await deps.slack.postMessage({
+    thread: mention.thread,
+    text: report.text,
+    // Engine answers are standard Markdown. Slack's older `text` field parses its
+    // similar-looking mrkdwn dialect, which misrenders headings, links, and tables.
+    format: "markdown",
+  });
 
   // Only now, with the answer delivered, does the coworker tidy up. Curation is
   // best-effort and takes as long as it takes, so anything the person is waiting for has

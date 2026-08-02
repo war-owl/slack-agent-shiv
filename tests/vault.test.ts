@@ -470,7 +470,7 @@ describe("the Librarian's closing pass", () => {
     // work that was already done and already correct.
     const texts = h.slack.textsIn(DEFAULT_THREAD_TS);
     expect(texts).toContain("Deploys go out from main.");
-    expect(texts.join("\n")).not.toMatch(/\*Stopped —/);
+    expect(texts.join("\n")).not.toMatch(/\*\*Stopped —/);
     expect(h.warnings.join("\n")).toContain("the Job it belonged to was stopped");
   });
 

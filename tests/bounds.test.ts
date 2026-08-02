@@ -220,7 +220,7 @@ describe("a bound message cannot be read as a result", () => {
     expect(h.slack.currentTextOf(h.slack.tsOf(0))).toContain("Stopped");
     expect(h.slack.currentTextOf(h.slack.tsOf(0))).not.toContain("Done");
     // …and the report is its own message, opening with the word rather than burying it.
-    expect(reportIn(h, DEFAULT_THREAD_TS)).toMatch(/^\*Stopped —/);
+    expect(reportIn(h, DEFAULT_THREAD_TS)).toMatch(/^\*\*Stopped —/);
   });
 });
 

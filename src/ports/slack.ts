@@ -13,6 +13,8 @@ export interface PostMessage {
   /** Every message the coworker posts is threaded — the answer lives with the question. */
   thread: Thread;
   text: string;
+  /** Model answers use standard Markdown; app-authored messages use Slack mrkdwn. */
+  format?: "markdown" | "mrkdwn";
 }
 
 export interface PostedMessage {
@@ -38,6 +40,8 @@ export interface UpdateMessage {
    */
   ts: string;
   text: string;
+  /** Must match the format used when the message was posted. */
+  format?: "markdown" | "mrkdwn";
 }
 
 export interface SetStatus {

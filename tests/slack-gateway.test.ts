@@ -13,3 +13,40 @@ describe("Slack channel resolution", () => {
     expect(list).not.toHaveBeenCalled();
   });
 });
+
+describe("Slack message formatting", () => {
+  it("sends model answers through Slack's standard Markdown field", async () => {
+    const postMessage = vi.fn(async () => ({ ts: "1700000000.000100" }));
+    const app = { client: { chat: { postMessage } } } as unknown as App;
+    const slack = slackClientFor(app, "xoxb-test");
+
+    await slack.postMessage({
+      thread: { channel: "C_PLATFORM", ts: "1699999999.000100" },
+      text: "## Result\n\n| State | Count |\n| --- | ---: |\n| Open | 3 |",
+      format: "markdown",
+    });
+
+    expect(postMessage).toHaveBeenCalledWith({
+      channel: "C_PLATFORM",
+      thread_ts: "1699999999.000100",
+      markdown_text: "## Result\n\n| State | Count |\n| --- | ---: |\n| Open | 3 |",
+    });
+  });
+
+  it("keeps app-authored operational messages on mrkdwn by default", async () => {
+    const postMessage = vi.fn(async () => ({ ts: "1700000000.000100" }));
+    const app = { client: { chat: { postMessage } } } as unknown as App;
+    const slack = slackClientFor(app, "xoxb-test");
+
+    await slack.postMessage({
+      thread: { channel: "C_PLATFORM", ts: "1699999999.000100" },
+      text: "*Working*",
+    });
+
+    expect(postMessage).toHaveBeenCalledWith({
+      channel: "C_PLATFORM",
+      thread_ts: "1699999999.000100",
+      text: "*Working*",
+    });
+  });
+});
