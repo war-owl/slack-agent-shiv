@@ -18,6 +18,8 @@ interface McpServerPolicy {
    * its coworker calling.
    */
   disabledTools: readonly string[];
+  /** Explicit trust decision for unattended Jobs; omitted connectors keep Codex defaults. */
+  defaultToolsApprovalMode?: "auto" | "prompt" | "writes" | "approve" | undefined;
   /** Passed through to Codex when set. */
   startupTimeoutSec?: number | undefined;
   /** Passed through to Codex when set. */

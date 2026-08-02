@@ -111,6 +111,14 @@ describe("the configuration file", () => {
     expect(config.bounds.tokenBudgetPerJob).toBeUndefined();
   });
 
+  it("refuses a Job timeout of 24 hours or more", async () => {
+    const { filePath } = await configFile({ bounds: { turnTimeoutMs: 86_400_000 } });
+
+    await expect(loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath })).rejects.toThrow(
+      "bounds.turnTimeoutMs",
+    );
+  });
+
   it("takes independent Slack download and upload size ceilings", async () => {
     const { filePath } = await configFile({
       fileTransfer: { maxDownloadBytes: 1_000_000, maxUploadBytes: 2_000_000 },

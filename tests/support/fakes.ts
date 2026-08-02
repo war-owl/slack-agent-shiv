@@ -18,11 +18,13 @@ import type {
   DownloadFile,
   DownloadedFile,
   PostMessage,
+  PostTopLevelMessage,
   PostedMessage,
   ReadThread,
   SetStatus,
   SlackClient,
   SlackIdentity,
+  SlackChannel,
   SlackThreadHistory,
   SlackThreadMessage,
   UpdateMessage,
@@ -91,6 +93,9 @@ export class FakeSlack implements SlackClient {
   failStatuses: Error | undefined;
   /** Set to make every result-file upload fail. */
   failUploads: Error | undefined;
+  readonly userTimezones = new Map<string, string>();
+  readonly channels = new Map<string, SlackChannel>();
+  readonly topLevelPosts: (PostTopLevelMessage & { ts: string; at: number })[] = [];
 
   private nextTs = 1;
   private readonly clock: Clock;
@@ -123,6 +128,29 @@ export class FakeSlack implements SlackClient {
   async identity(): Promise<SlackIdentity> {
     if (this.failIdentity) throw this.failIdentity;
     return { botUserId: "U0COWORKER", team: "A Test Workspace" };
+  }
+
+  async userTimezone(userId: string): Promise<string | undefined> {
+    return this.userTimezones.get(userId);
+  }
+
+  async resolveWritableChannel(reference: string): Promise<SlackChannel> {
+    const mentioned = /^<#([A-Z0-9]+)(?:\|[^>]+)?>$/.exec(reference.trim());
+    const normalized = mentioned?.[1] ?? reference.replace(/^#/, "");
+    const matches = [...this.channels.values()].filter((channel) => channel.id === normalized || channel.name === normalized);
+    if (matches.length !== 1) throw new Error(`I cannot resolve ${reference} to one writable channel.`);
+    return { ...matches[0]! };
+  }
+
+  async postTopLevelMessage(message: PostTopLevelMessage): Promise<PostedMessage> {
+    const failure = this.failNextPost;
+    if (failure) {
+      this.failNextPost = undefined;
+      throw failure;
+    }
+    const ts = `top-${this.nextTs++}`;
+    this.topLevelPosts.push({ ...message, ts, at: this.clock.now() });
+    return { ts };
   }
 
   async downloadFile(file: DownloadFile): Promise<DownloadedFile> {

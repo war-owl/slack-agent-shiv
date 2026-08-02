@@ -168,12 +168,9 @@ async function reportVault(deps: { config: Config; log: Logger }): Promise<void>
  * instance against the wrong tokens, and the moment to notice is now.
  */
 async function checkSlack(deps: { slack: SlackClient; config: Config; log: Logger }): Promise<void> {
+  let identity;
   try {
-    const identity = await deps.slack.identity();
-    deps.log.info(
-      `Slack: connected to ${identity.team} as ${identity.botUserId}. Mention that user in a ` +
-        "channel it has been invited to.",
-    );
+    identity = await deps.slack.identity();
   } catch (error) {
     throw new Error(
       `Slack rejected the bot token: ${reasonFor(error)}. The token came from the variable ` +
@@ -181,4 +178,17 @@ async function checkSlack(deps: { slack: SlackClient; config: Config; log: Logge
         "because the alternative is a Job that takes work in a Thread and cannot answer it.",
     );
   }
+  try {
+    await deps.slack.userTimezone(identity.botUserId);
+  } catch (error) {
+    throw new Error(
+      `Slack user lookup failed: ${reasonFor(error)}. Scheduled work needs the users:read ` +
+        "bot scope to default a Schedule to its creator's timezone. Add the scope, reinstall " +
+        "the Slack app, and restart open-agent.",
+    );
+  }
+  deps.log.info(
+    `Slack: connected to ${identity.team} as ${identity.botUserId}. Mention that user in a ` +
+      "channel it has been invited to. User timezone lookup is available.",
+  );
 }

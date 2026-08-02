@@ -72,6 +72,7 @@ export function buildJobPrompt(mention: Mention, context: PromptContext): string
     "A message in Slack has been addressed to you.",
     "",
     `Channel: ${mention.thread.channel}`,
+    "That channel identifies where this conversation happened. It is context only and is not an explicitly chosen Schedule destination.",
     `Thread: ${mention.thread.ts}`,
     `From: <@${mention.userId}>`,
     "",

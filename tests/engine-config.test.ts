@@ -16,6 +16,10 @@ const github: McpHttpServerConfig = {
 };
 
 describe("the engine's external tools", () => {
+  it("never asks for interactive approval because Slack Jobs have no approval channel", () => {
+    expect(engineConfig([]).approval_policy).toBe("never");
+  });
+
   it("disables inherited Codex Apps while preserving explicitly configured MCP servers", () => {
     const config = engineConfig([github]);
 
@@ -27,6 +31,22 @@ describe("the engine's external tools", () => {
         enabled: true,
       },
     });
+  });
+
+  it("auto-approves only a server explicitly trusted for unattended tool calls", () => {
+    const schedules: McpHttpServerConfig = {
+      ...github,
+      name: "schedules",
+      defaultToolsApprovalMode: "approve",
+    };
+
+    const config = engineConfig([github, schedules]);
+
+    expect(config.mcp_servers).toMatchObject({
+      schedules: { default_tools_approval_mode: "approve" },
+    });
+    expect((config.mcp_servers as Record<string, unknown>).github)
+      .not.toHaveProperty("default_tools_approval_mode");
   });
 
   it("still disables Codex Apps when no MCP server is configured", () => {

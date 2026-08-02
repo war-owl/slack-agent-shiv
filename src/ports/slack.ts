@@ -20,6 +20,16 @@ export interface PostedMessage {
   ts: string;
 }
 
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
+export interface PostTopLevelMessage {
+  channel: string;
+  text: string;
+}
+
 export interface UpdateMessage {
   thread: Thread;
   /**
@@ -94,6 +104,12 @@ export interface SlackClient {
    * somebody is watching.
    */
   identity(): Promise<SlackIdentity>;
+  /** The IANA timezone stored on a Slack member profile. */
+  userTimezone(userId: string): Promise<string | undefined>;
+  /** Resolve a channel id/name and prove the bot can start a threaded conversation there. */
+  resolveWritableChannel(reference: string): Promise<SlackChannel>;
+  /** Start a new channel conversation. Its timestamp becomes the Job's Thread. */
+  postTopLevelMessage(message: PostTopLevelMessage): Promise<PostedMessage>;
   /** Fetch a private Slack file with the bot token. */
   downloadFile(file: DownloadFile): Promise<DownloadedFile>;
   /** Retrieve Thread messages and files up to and including the triggering message. */

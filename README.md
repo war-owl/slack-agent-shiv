@@ -59,8 +59,9 @@ directory named in its prompt. The wrapper uploads every regular file there back
 originating Thread before the final answer and appends a permanent audit receipt. Symlinks,
 directories, and oversized outputs are not uploaded.
 
-Our Slack app requires `files:read` for attachments and `files:write` for result uploads;
-changing scopes requires reinstalling the app. Both transfer ceilings default to 20 MiB and
+Our Slack app requires `files:read` for attachments, `files:write` for result uploads, and
+`users:read` for Schedule timezones; changing scopes requires reinstalling the app. Both
+transfer ceilings default to 20 MiB and
 are configurable under `fileTransfer`.
 
 ## Running it
@@ -86,10 +87,28 @@ with a Vault and no connectors. See [docs/configuration.md](docs/configuration.m
 connector is found before the first mention. MCP servers may add or remove tools without
 blocking startup.
 
-The only thing the instance keeps for itself is `.state/sessions.json`: which Codex
-session each Slack thread resumes into. Conversations live on Codex's disk and notes
-live in the Vault, so that one small file is all this project persists — delete it and
-every thread starts over as if it had never spoken to you.
+The instance keeps Session mappings and Schedules under `.state/`. Conversations live on
+Codex's disk and Notes live in the Vault. Deleting `sessions.json` makes every Thread start
+over; deleting `schedules.json` permanently removes every configured Schedule.
+
+## Scheduled work
+
+Ask in the same conversational Slack style used for ordinary work:
+
+> @open-agent Every weekday at 9 AM summarize new commits in org/repo and post in #engineering.
+
+The coworker resolves an explicit timezone or defaults to the requesting user's Slack
+timezone, validates the destination, and posts a team creation notice in the destination.
+Every Occurrence starts a new top-level message there; progress, Write receipts, files, and
+the final result stay in its Thread.
+
+Manage Schedules conversationally: “list schedules”, “pause S-3”, “move S-3 to #platform”,
+“run S-3 now”, or “delete S-3”. Anyone who can invoke the bot may manage any Schedule in
+this version. Recurring work is limited to once per local calendar day; one-time reminders
+may be sooner. Missed and overlapping Occurrences are skipped rather than caught up.
+
+The Slack app requires `users:read` to use a creator's profile timezone. Add the scope and
+reinstall the app when upgrading an existing workspace installation.
 
 ## Its memory is a folder of Markdown
 
@@ -144,15 +163,15 @@ It is otherwise an ordinary note — open it and rewrite it.
 
 ## What stops a runaway job
 
-By default, a job has **no per-Turn timeout, Turn cap, or token budget**. It runs until it
-finishes or someone stops it. Each limit is independently opt-in under `bounds`:
-`turnTimeoutMs`, `maxTurnsPerJob`, and `tokenBudgetPerJob`. A job that hits a configured
+Every job has a per-Turn wall-clock timeout, defaulting to six hours and required to remain
+below 24 hours. The Turn cap and token budget remain independently opt-in under `bounds`.
+A job that hits a configured
 limit is killed and says in the thread which limit stopped it, how far it had got, and
 that whatever it had already done out in the world still stands.
 
 Codex reports token usage only after a Turn ends, so a configured token budget can refuse
-the next Turn but cannot interrupt one already spending. Configure `turnTimeoutMs` as well
-when a hard wall-clock ceiling is required.
+the next Turn but cannot interrupt one already spending. The wall-clock timeout is what can
+interrupt a wedged Turn.
 
 You can also stop a job yourself: **`@coworker stop`, and nothing else in the
 message.** A mention that says anything more is a correction, not a kill switch.

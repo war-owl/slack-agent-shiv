@@ -58,6 +58,59 @@ export function slackClientFor(app: App, botToken: string): SlackClient {
       return { botUserId: result.user_id, team: result.team ?? "an unnamed workspace" };
     },
 
+    async userTimezone(userId): Promise<string | undefined> {
+      const result = await app.client.users.info({ user: userId });
+      return result.user?.tz || undefined;
+    },
+
+    async resolveWritableChannel(reference) {
+      const trimmed = reference.trim();
+      const mentioned = /^<#([A-Z0-9]+)(?:\|([^>]+))?>$/.exec(trimmed);
+      const given = mentioned?.[1] ?? trimmed.replace(/^#/, "");
+      const looksLikeId = /^[CGD][A-Z0-9]+$/.test(given);
+      // A picker mention/ID is already Slack's canonical destination. Avoid listing the
+      // whole workspace just to rediscover it: that requires channels:read/groups:read,
+      // while the creation post below is the definitive writability check.
+      if (looksLikeId) return { id: given, name: mentioned?.[2] ?? given };
+      const matches: { id: string; name: string; archived: boolean; writable: boolean }[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await app.client.conversations.list({
+          types: "public_channel,private_channel",
+          exclude_archived: false,
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
+        for (const channel of result.channels ?? []) {
+          if (!channel.id || !channel.name) continue;
+          if ((looksLikeId && channel.id !== given) || (!looksLikeId && channel.name !== given)) continue;
+          const shape = channel as typeof channel & { is_read_only?: boolean; is_non_threadable?: boolean };
+          matches.push({
+            id: channel.id,
+            name: channel.name,
+            archived: channel.is_archived === true,
+            writable:
+              channel.is_member === true &&
+              shape.is_read_only !== true &&
+              shape.is_non_threadable !== true,
+          });
+        }
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+      if (matches.length === 0) throw new Error(`I cannot find Slack channel ${reference}.`);
+      if (matches.length > 1) throw new Error(`Slack channel ${reference} is ambiguous; mention it with Slack's channel picker.`);
+      const channel = matches[0]!;
+      if (channel.archived) throw new Error(`#${channel.name} is archived.`);
+      if (!channel.writable) throw new Error(`I cannot start a threaded message in #${channel.name}; invite the bot and check its posting restrictions.`);
+      return { id: channel.id, name: channel.name };
+    },
+
+    async postTopLevelMessage(message) {
+      const result = await app.client.chat.postMessage({ channel: message.channel, text: message.text });
+      if (!result.ts) throw new Error("Slack accepted the message but returned no timestamp");
+      return { ts: result.ts };
+    },
+
     async downloadFile(file: DownloadFile): Promise<DownloadedFile> {
       const response = await fetch(file.url, {
         headers: { authorization: `Bearer ${botToken}` },

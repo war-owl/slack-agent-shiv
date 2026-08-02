@@ -67,8 +67,9 @@ alone and `skills` follows it.
 "stateDir": "./.state"
 ```
 
-Durable wrapper state. Session mappings live here, along with the append-only
-`vault-changes.jsonl` server log. Each Vault record is one JSON object containing the
+Durable wrapper state. Session mappings and the atomically replaced `schedules.json` live
+here, along with the append-only `vault-changes.jsonl` server log. Each Vault record is one
+JSON object containing the
 timestamp, action, Note path, originating Thread and Job, optional attribution detail, and
 the full available diff. Vault bookkeeping is not posted into Slack; external Write
 receipts are unchanged. Relative paths resolve against the instance file as usual.
@@ -76,9 +77,9 @@ receipts are unchanged. Relative paths resolve against the instance file as usua
 ### `bounds`
 
 What stops a Job that does not stop by itself. Codex supplies none of this — no timeout, no
-cap on turns, no budget, no kill switch — so these are the only ones there are. The
-three per-Job limits are disabled by default and can be enabled independently:
-`turnTimeoutMs`, `maxTurnsPerJob`, and `tokenBudgetPerJob`.
+cap on turns, no budget, no kill switch — so these are the only ones there are.
+`turnTimeoutMs` defaults to six hours and must remain below 24 hours. It applies equally to
+manual and Scheduled Jobs. `maxTurnsPerJob` and `tokenBudgetPerJob` remain optional.
 
 A Job is normally one Turn, and token usage arrives only at Turn completion. A configured
 token budget can therefore refuse the *next* Turn but cannot interrupt the one already
@@ -102,9 +103,10 @@ the Thread. Both default to 20 MiB. Incoming files are rejected from Slack metad
 download when they are already too large; downloaded bytes are checked again. Output files
 are checked on disk before upload.
 
-Our Slack app needs `files:read` to download private attachment URLs and `files:write` to
-share result artifacts. Changing either scope requires reinstalling the app in the
-workspace. The existing conversation-history scopes let the coworker retrieve supported
+Our Slack app needs `files:read` to download private attachment URLs, `files:write` to
+share result artifacts, and `users:read` to resolve a Schedule creator's timezone. Changing
+any scope requires reinstalling the app in the workspace. The existing conversation-history
+scopes let the coworker retrieve supported
 files from earlier replies in the same Thread through `conversations.replies`.
 
 ### `engine`

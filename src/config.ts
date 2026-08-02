@@ -57,6 +57,8 @@ export const DEFAULT_CONFIG_FILENAME = "open-agent.config.json";
 
 /** Operational defaults that remain enabled without explicit configuration. */
 export const BOUND_DEFAULTS = {
+  /** Six hours: comfortably below the minimum daily Schedule cadence. */
+  turnTimeoutMs: 6 * 60 * 60 * 1000,
   /**
    * Four Jobs at once, across the whole instance.
    *
@@ -94,7 +96,7 @@ export const BOUND_DEFAULTS = {
 
 const boundsSchema = z.object({
   /** Optional wall clock on a single Turn. Expiring hard-kills the engine's process. */
-  turnTimeoutMs: z.number().int().positive().optional(),
+  turnTimeoutMs: z.number().int().positive().max(24 * 60 * 60 * 1000 - 1).optional(),
   /** Optional number of Turns one Job may run before it is stopped. */
   maxTurnsPerJob: z.number().int().positive().optional(),
   /** Optional cumulative tokens, accumulated from turn-completion usage. */
@@ -140,7 +142,7 @@ export interface Config {
   /** Where per-Thread Job workspaces are created. The sandbox's writable root. */
   workspaceRoot: string;
   /**
-   * The wrapper's own durable state — which is only the Session mapping. Deliberately
+   * The wrapper's own durable state — Session mappings, Schedules, and operational logs. Deliberately
    * outside the Vault and outside every workspace: the Vault is the human's, and a
    * workspace is writable by the agent, which must not be able to rewrite which
    * Session another Thread resumes into.
@@ -311,10 +313,11 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       reasoningEffort: file.engine.reasoningEffort ?? defaults.reasoningEffort,
       codexPath: file.engine.codexPath === undefined ? undefined : from(file.engine.codexPath),
     },
-    // Per-Job limits are opt-in. Concurrency and Librarian timeout retain operational
-    // defaults because they protect shared service behavior rather than curtailing a Job.
+    // The wall clock is always present so a daily Schedule cannot remain wedged forever.
+    // The other per-Job limits are opt-in; concurrency and Librarian timeout retain
+    // operational defaults because they protect shared service behavior.
     bounds: {
-      turnTimeoutMs: file.bounds.turnTimeoutMs,
+      turnTimeoutMs: file.bounds.turnTimeoutMs ?? BOUND_DEFAULTS.turnTimeoutMs,
       maxTurnsPerJob: file.bounds.maxTurnsPerJob,
       tokenBudgetPerJob: file.bounds.tokenBudgetPerJob,
       maxConcurrentJobs: file.bounds.maxConcurrentJobs ?? BOUND_DEFAULTS.maxConcurrentJobs,

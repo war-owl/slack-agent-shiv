@@ -167,6 +167,11 @@ export function engineConfig(
 ): NonNullable<CodexOptions["config"]> {
   const mcp = mcpServerConfig(servers);
   return {
+    // Jobs run from Slack without an interactive approval channel. Leaving this to the
+    // operator's Codex config makes every write-capable MCP call look cancelled when that
+    // config asks for confirmation, even though the Job's action boundary already decides
+    // which tools exist via disabled_tools.
+    approval_policy: "never",
     features: { apps: false },
     ...(mcp ?? {}),
   };
@@ -194,6 +199,9 @@ function mcpServerConfig(
                 : { env_http_headers: server.envHttpHeaders }),
               enabled: server.enabled,
               disabled_tools: disabledToolsFor(server),
+              ...(server.defaultToolsApprovalMode === undefined
+                ? {}
+                : { default_tools_approval_mode: server.defaultToolsApprovalMode }),
               ...(server.startupTimeoutSec === undefined
                 ? {}
                 : { startup_timeout_sec: server.startupTimeoutSec }),
@@ -209,6 +217,9 @@ function mcpServerConfig(
               ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
               enabled: server.enabled,
               disabled_tools: disabledToolsFor(server),
+              ...(server.defaultToolsApprovalMode === undefined
+                ? {}
+                : { default_tools_approval_mode: server.defaultToolsApprovalMode }),
               ...(server.startupTimeoutSec === undefined
                 ? {}
                 : { startup_timeout_sec: server.startupTimeoutSec }),

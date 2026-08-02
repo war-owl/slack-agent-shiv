@@ -361,5 +361,6 @@ describe("the prompt the engine receives", () => {
     expect(prompt).not.toContain(BOT_USER_ID);
     expect(prompt).toContain("U_ASKER");
     expect(prompt).toContain("1700000042.000100");
+    expect(prompt).toContain("context only and is not an explicitly chosen Schedule destination");
   });
 });

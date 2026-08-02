@@ -17,6 +17,7 @@
     "reasoningEffort": "low"
   },
   "bounds": {
+    "turnTimeoutMs": 21600000,
     "maxConcurrentJobs": 4,
     "librarianTimeoutMs": 300000
   },

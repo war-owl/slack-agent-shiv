@@ -65,12 +65,31 @@ export interface StartedJob {
   completed: Promise<void>;
 }
 
+export type JobCompletion = "succeeded" | "failed" | "timed-out";
+
+export interface ScheduledRequest {
+  occurrenceId: string;
+  scheduleId: string;
+  thread: Thread;
+  creatorUserId: string;
+  task: string;
+  dueAt: string;
+  startedAt: string;
+  timezone: string;
+  previousSuccessAt: string | null;
+}
+
+export interface ScheduledJob {
+  jobId: string;
+  completed: Promise<JobCompletion>;
+}
+
 export interface CoworkerDeps {
   config: Config;
   slack: SlackClient;
   engine: Engine;
   clock: Clock;
-  /** The `thread_ts → session id` mapping. The wrapper's only durable state. */
+  /** The `thread_ts → session id` mapping. The durable state owned by the Job runner. */
   sessions: SessionStore;
   inventoryProber: McpInventoryProber;
   repositoryProtection: RepositoryProtectionProbe;
@@ -93,6 +112,8 @@ export interface Coworker {
    * the Thread — the Job itself is still running.
    */
   handleMention(mention: Mention): Promise<StartedJob>;
+  /** Submit a claimed Schedule Occurrence through the ordinary Job pipeline. */
+  handleScheduled(request: ScheduledRequest): Promise<ScheduledJob>;
 }
 
 export function createCoworker(deps: CoworkerDeps): Coworker {
@@ -170,7 +191,41 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
           place,
           mention,
           acknowledgement,
-        ),
+        ).then(() => {}),
+      };
+    },
+
+    async handleScheduled(request): Promise<ScheduledJob> {
+      const mention: Mention = {
+        eventId: `schedule-${request.scheduleId}-${request.occurrenceId}`,
+        thread: request.thread,
+        messageTs: request.thread.ts,
+        userId: request.creatorUserId,
+        files: [],
+        text: [
+          request.task,
+          "",
+          "Trusted Schedule context supplied by open-agent:",
+          `- Schedule: ${request.scheduleId}`,
+          `- Due: ${request.dueAt}`,
+          `- Started: ${request.startedAt}`,
+          `- Timezone: ${request.timezone}`,
+          `- Previous successful Occurrence: ${request.previousSuccessAt ?? "none"}`,
+        ].join("\n"),
+      };
+      const place = queue.join(mention.thread);
+      let acknowledgement: Acknowledgement;
+      try {
+        acknowledgement = place.waiting
+          ? { receipt: await postReceipt(deps, mention, place.waiting), waited: place.waiting }
+          : { started: await statusFor(deps, mention.thread) };
+      } catch (error) {
+        place.abandon();
+        throw error;
+      }
+      return {
+        jobId: mention.eventId,
+        completed: runInTurn(deps, running, vaultWindows, vaultChangeLog, place, mention, acknowledgement),
       };
     },
   };
@@ -202,11 +257,12 @@ async function runInTurn(
   place: Place,
   mention: Mention,
   acknowledgement: Acknowledgement,
-): Promise<void> {
-  const outcome = await place.take(() =>
-    runJob(deps, running, vaultWindows, vaultChangeLog, mention, acknowledgement),
-  );
-  if (outcome === "ran" || !("receipt" in acknowledgement)) return;
+): Promise<JobCompletion> {
+  let completion: JobCompletion = "failed";
+  const outcome = await place.take(async () => {
+    completion = await runJob(deps, running, vaultWindows, vaultChangeLog, mention, acknowledgement);
+  });
+  if (outcome === "ran" || !("receipt" in acknowledgement)) return completion;
 
   deps.log.info(`Dropped queued ${mention.eventId} in thread ${mention.thread.ts}`);
   try {
@@ -223,6 +279,7 @@ async function runInTurn(
         `${reasonFor(error)}`,
     );
   }
+  return "failed";
 }
 
 /** Tell the Thread its mention landed and will have to wait. Returns the receipt's ts. */
@@ -295,7 +352,7 @@ async function runJob(
   vaultChangeLog: VaultChangeLog,
   mention: Mention,
   acknowledgement: Acknowledgement,
-): Promise<void> {
+): Promise<JobCompletion> {
   // Armed and put in the index **before this function awaits anything**, and that is
   // load-bearing. The queue stops treating this Job as interruptible the moment it
   // hands it the Thread, so a stop arriving in the gap between there and here would
@@ -580,6 +637,9 @@ async function runJob(
     );
     vault?.close();
   }
+  if (stoppedBy?.kind === "turn-timeout") return "timed-out";
+  if (stoppedBy !== undefined || failure !== undefined) return "failed";
+  return "succeeded";
 }
 
 function distinctFiles(files: readonly MentionFile[]): readonly MentionFile[] {

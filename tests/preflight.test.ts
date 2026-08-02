@@ -84,13 +84,13 @@ describe("the engine and the bounds", () => {
     expect(h.logs.join("\n")).toContain("90s per Turn");
   });
 
-  it("reports that per-Job limits are disabled by default", async () => {
+  it("reports the default timeout and optional limits", async () => {
     const h = await coworkerHarness();
 
     await h.coworker.preflight();
 
     const logs = h.logs.join("\n");
-    expect(logs).toContain("no per-Turn timeout");
+    expect(logs).toContain("21600s per Turn");
     expect(logs).toContain("no Turn cap");
     expect(logs).toContain("no token budget");
   });
