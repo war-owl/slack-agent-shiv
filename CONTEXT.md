@@ -22,6 +22,18 @@ One piece of delegated work: a human mentions the coworker, the coworker works, 
 
 A Job belongs to exactly one Thread and runs in that Thread's Session. Jobs in the same Thread are strictly sequential; a mention arriving while a Job runs is queued for the next one.
 
+## Schedule
+
+A standing delegation that asks the coworker to perform a natural-language task at a
+specified time, either once or on a recurring calendar cadence. A Schedule names the Slack
+channel where its Jobs are reported; it is not a shell command or an event subscription.
+
+## Occurrence
+
+One time at which a [Schedule](#schedule) becomes due. An Occurrence creates an ordinary
+[Job](#job), with the same powers and limits as work delegated directly in Slack; an
+Occurrence missed while the coworker is offline is skipped.
+
 ## Turn
 
 The unit of **durability**, imposed by the engine rather than chosen. Work is preserved at Turn boundaries: a Turn that completes is durable and resumable, a Turn interrupted partway cannot be resumed and its side effects may have partially landed.
