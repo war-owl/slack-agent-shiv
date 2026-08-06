@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { prepareRepositoryCheckout } from "./checkout.ts";
+import type { RepositoryRestoration } from "./checkout.ts";
 
 interface CheckoutCommandConfig {
   workspace: string;
   credentialEnvVar: string | undefined;
   repositories: Record<string, string>;
+  restorations?: Record<string, RepositoryRestoration>;
 }
 
 async function main(): Promise<void> {
@@ -28,6 +30,7 @@ async function main(): Promise<void> {
     remote,
     credentialEnvVar: config.credentialEnvVar,
     env: process.env,
+    restoration: config.restorations?.[repository],
   });
   process.stdout.write(
     `${prepared.repository} is ready at ${prepared.checkout} ` +

@@ -8,6 +8,9 @@
     "skills": "./vault/Skills"
   },
   "workspaceRoot": "./.workspaces",
+  "workspaceRetention": {
+    "inactivityMs": 3600000
+  },
   "stateDir": "./.state",
   "operatingManual": "./assets/operating-manual.md",
   "mcpConfig": "./mcp.json",

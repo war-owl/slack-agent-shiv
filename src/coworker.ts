@@ -43,7 +43,11 @@ import {
   type VaultWindow,
   type VaultWindows,
 } from "./vault/window.ts";
-import { prepareWorkspace } from "./workspace.ts";
+import { prepareWorkspace, workspaceDirectory } from "./workspace.ts";
+import {
+  startWorkspaceLifecycle,
+  type WorkspaceLifecycle,
+} from "./workspaces/lifecycle.ts";
 import { writeScope } from "./writes/classify.ts";
 
 /** A human addressing the coworker with a task, in the wrapper's own terms. */
@@ -142,9 +146,24 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
     clock: deps.clock,
     log: deps.log,
   });
+  const workspaceLifecycle = startWorkspaceLifecycle({
+    workspaceRoot: deps.config.workspaceRoot,
+    stateDir: deps.config.stateDir,
+    inactivityMs: deps.config.workspaceRetention.inactivityMs,
+    clock: deps.clock,
+    log: deps.log,
+  });
 
   return {
-    preflight: () => runPreflight(deps),
+    preflight: async () => {
+      await runPreflight(deps);
+      // Reclaiming years of old workspaces can take minutes. It is housekeeping, not a
+      // condition for serving Slack, so startup must not wait for it. The lifecycle's Job
+      // leases still serialize a Job against any sweep already touching its workspace.
+      void workspaceLifecycle.sweep().catch((error: unknown) => {
+        deps.log.warn(`Initial workspace sweep failed: ${reasonFor(error)}`);
+      });
+    },
 
     async handleMention(mention: Mention): Promise<StartedJob> {
       // Checked before anything else is posted, and before any place in the queue is
@@ -188,6 +207,7 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
           running,
           vaultWindows,
           vaultChangeLog,
+          workspaceLifecycle,
           place,
           mention,
           acknowledgement,
@@ -225,7 +245,16 @@ export function createCoworker(deps: CoworkerDeps): Coworker {
       }
       return {
         jobId: mention.eventId,
-        completed: runInTurn(deps, running, vaultWindows, vaultChangeLog, place, mention, acknowledgement),
+        completed: runInTurn(
+          deps,
+          running,
+          vaultWindows,
+          vaultChangeLog,
+          workspaceLifecycle,
+          place,
+          mention,
+          acknowledgement,
+        ),
       };
     },
   };
@@ -254,13 +283,28 @@ async function runInTurn(
   running: Map<string, JobBounds>,
   vaultWindows: VaultWindows,
   vaultChangeLog: VaultChangeLog,
+  workspaceLifecycle: WorkspaceLifecycle,
   place: Place,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<JobCompletion> {
   let completion: JobCompletion = "failed";
   const outcome = await place.take(async () => {
-    completion = await runJob(deps, running, vaultWindows, vaultChangeLog, mention, acknowledgement);
+    const directory = workspaceDirectory(deps.config, mention.thread);
+    const lease = await workspaceLifecycle.use(directory);
+    try {
+      completion = await runJob(
+        deps,
+        running,
+        vaultWindows,
+        vaultChangeLog,
+        workspaceLifecycle,
+        mention,
+        acknowledgement,
+      );
+    } finally {
+      await lease.release();
+    }
   });
   if (outcome === "ran" || !("receipt" in acknowledgement)) return completion;
 
@@ -350,6 +394,7 @@ async function runJob(
   running: Map<string, JobBounds>,
   vaultWindows: VaultWindows,
   vaultChangeLog: VaultChangeLog,
+  workspaceLifecycle: WorkspaceLifecycle,
   mention: Mention,
   acknowledgement: Acknowledgement,
 ): Promise<JobCompletion> {
@@ -394,8 +439,10 @@ async function runJob(
   let root: RootNote = NO_ROOT_NOTE;
 
   try {
+    const directory = workspaceDirectory(deps.config, mention.thread);
     const prepared = await prepareWorkspace(deps.config, mention.thread, deps.log, {
       remoteFor: deps.repositoryRemote,
+      restorations: await workspaceLifecycle.restorationFor(directory),
     });
     const workingDirectory = prepared.directory;
     workspaceDir = workingDirectory;

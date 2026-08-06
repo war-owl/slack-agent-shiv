@@ -4,6 +4,7 @@ import { onTestFinished } from "vitest";
 import {
   BOUND_DEFAULTS,
   FILE_TRANSFER_DEFAULTS,
+  WORKSPACE_RETENTION_DEFAULTS,
   type Config,
 } from "../../src/config.ts";
 import { NOTES_DIRNAME, SKILLS_DIRNAME } from "../../src/vault/skills.ts";
@@ -48,6 +49,8 @@ export interface HarnessOptions {
   bounds?: Partial<Config["bounds"]>;
   /** Overrides on the shipped Slack file-transfer ceilings. */
   fileTransfer?: Partial<Config["fileTransfer"]>;
+  /** Overrides on inactive workspace reclamation. */
+  workspaceRetention?: Partial<Config["workspaceRetention"]>;
   /** The credential store preflight resolves named credentials out of. */
   env?: NodeJS.ProcessEnv;
   /**
@@ -152,6 +155,10 @@ export async function coworkerHarness(options: HarnessOptions = {}): Promise<Cow
     notesDir,
     skillsDir,
     workspaceRoot,
+    workspaceRetention: {
+      ...WORKSPACE_RETENTION_DEFAULTS,
+      ...options.workspaceRetention,
+    },
     stateDir,
     operatingManualPath,
     engine: { model: "gpt-5.6-sol", reasoningEffort: "low" },

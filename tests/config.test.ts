@@ -5,6 +5,7 @@ import {
   BOUND_DEFAULTS,
   DEFAULT_CONFIG_FILENAME,
   FILE_TRANSFER_DEFAULTS,
+  WORKSPACE_RETENTION_DEFAULTS,
   loadConfig,
   type ConfigFile,
 } from "../src/config.ts";
@@ -69,6 +70,15 @@ describe("the configuration file", () => {
     expect(path.basename(config.notesDir)).toBe(NOTES_DIRNAME);
     expect(config.engine.reasoningEffort).toBe("low");
     expect(config.fileTransfer).toEqual(FILE_TRANSFER_DEFAULTS);
+    expect(config.workspaceRetention).toEqual(WORKSPACE_RETENTION_DEFAULTS);
+  });
+
+  it("takes the inactive workspace lifetime from the instance file", async () => {
+    const { filePath } = await configFile({ workspaceRetention: { inactivityMs: 7_200_000 } });
+
+    const config = await loadConfig({ ...SLACK_TOKENS, CONFIG_PATH: filePath });
+
+    expect(config.workspaceRetention.inactivityMs).toBe(7_200_000);
   });
 
   it("refuses to start when it was told where the file is and there is nothing there", async () => {

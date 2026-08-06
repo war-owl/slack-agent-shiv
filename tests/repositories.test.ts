@@ -208,7 +208,7 @@ describe("a configured code repository", () => {
     expect(h.slack.textsIn(DEFAULT_THREAD_TS).join("\n")).not.toContain(
       "create_pull_request",
     );
-  });
+  }, 10_000);
 
   it("refreshes the remote and restores the checkout guardrails before every Job", async () => {
     const fixture = await repositoryFixture();

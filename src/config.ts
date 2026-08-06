@@ -52,6 +52,11 @@ export const FILE_TRANSFER_DEFAULTS = {
   maxUploadBytes: 20 * 1024 * 1024,
 } as const;
 
+export const WORKSPACE_RETENTION_DEFAULTS = {
+  /** One hour without a Job, as agreed for disposable workspaces and caches. */
+  inactivityMs: 60 * 60 * 1000,
+} as const;
+
 /** Where the configuration file lives unless `CONFIG_PATH` says otherwise. */
 export const DEFAULT_CONFIG_FILENAME = "open-agent.config.json";
 
@@ -141,6 +146,10 @@ export interface Config {
   skillsDir: string;
   /** Where per-Thread Job workspaces are created. The sandbox's writable root. */
   workspaceRoot: string;
+  /** When inactive workspace material becomes eligible for safe reclamation. */
+  workspaceRetention: {
+    inactivityMs: number;
+  };
   /**
    * The wrapper's own durable state — Session mappings, Schedules, and operational logs. Deliberately
    * outside the Vault and outside every workspace: the Vault is the human's, and a
@@ -203,6 +212,12 @@ const configFileSchema = z
       // each field's own default, so "no `engine` section" and "an empty one" agree.
       .prefault({}),
     workspaceRoot: z.string().min(1).optional(),
+    workspaceRetention: z
+      .object({
+        inactivityMs: z.number().int().positive(),
+      })
+      .strict()
+      .prefault(WORKSPACE_RETENTION_DEFAULTS),
     stateDir: z.string().min(1).optional(),
     operatingManual: z.string().min(1).optional(),
     engine: z
@@ -303,6 +318,9 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
         : from(file.vault.skills),
     workspaceRoot:
       file.workspaceRoot === undefined ? defaults.workspaceRoot : from(file.workspaceRoot),
+    workspaceRetention: {
+      inactivityMs: file.workspaceRetention.inactivityMs,
+    },
     stateDir: file.stateDir === undefined ? defaults.stateDir : from(file.stateDir),
     operatingManualPath:
       file.operatingManual === undefined

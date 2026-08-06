@@ -28,12 +28,10 @@ export async function prepareWorkspace(
   log: Logger,
   options: {
     remoteFor?: ((repository: string) => string) | undefined;
+    restorations?: Parameters<typeof installCheckoutCommand>[0]["restorations"];
   },
 ): Promise<{ directory: string; repositoryAccess: RepositoryAccess }> {
-  const directory = path.join(
-    config.workspaceRoot,
-    `${slug(thread.channel)}-${slug(thread.ts)}`,
-  );
+  const directory = workspaceDirectory(config, thread);
   await mkdir(directory, { recursive: true });
 
   const manual = await readFile(config.operatingManualPath, "utf8");
@@ -55,9 +53,15 @@ export async function prepareWorkspace(
     repositories: config.repositories,
     credentialEnvVar: config.repositoryProtectionTokenEnvVar,
     remoteFor: options.remoteFor,
+    restorations: options.restorations,
   });
 
   return { directory, repositoryAccess };
+}
+
+/** The stable path whose lifetime is managed separately from Session identity. */
+export function workspaceDirectory(config: Config, thread: Thread): string {
+  return path.join(config.workspaceRoot, `${slug(thread.channel)}-${slug(thread.ts)}`);
 }
 
 function slug(value: string): string {

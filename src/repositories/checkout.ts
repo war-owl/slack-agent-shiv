@@ -20,6 +20,12 @@ export interface PreparedRepository {
   defaultBranch: string;
 }
 
+/** The exact clean, pushed checkout point recorded before inactive eviction. */
+export interface RepositoryRestoration {
+  branch: string;
+  head: string;
+}
+
 /**
  * The capability handed to a Job before it starts.
  *
@@ -37,6 +43,7 @@ export async function installCheckoutCommand(options: {
   repositories: readonly string[];
   credentialEnvVar: string | undefined;
   remoteFor?: ((repository: string) => string) | undefined;
+  restorations?: Readonly<Record<string, RepositoryRestoration>> | undefined;
 }): Promise<RepositoryAccess> {
   if (options.repositories.length === 0) {
     return { repositories: [], checkoutCommand: undefined };
@@ -62,6 +69,7 @@ export async function installCheckoutCommand(options: {
             ];
           }),
         ),
+        restorations: options.restorations ?? {},
       },
       null,
       2,
@@ -86,6 +94,7 @@ export async function prepareRepositoryCheckout(options: {
   remote: string;
   credentialEnvVar: string | undefined;
   env: NodeJS.ProcessEnv;
+  restoration?: RepositoryRestoration | undefined;
 }): Promise<PreparedRepository> {
   const parsed = parseRepositoryName(options.repository);
   const checkout = path.join(
@@ -95,7 +104,8 @@ export async function prepareRepositoryCheckout(options: {
     parsed.name,
   );
   const gitDirectory = path.join(checkout, ".git");
-  if (!(await exists(gitDirectory))) {
+  const fresh = !(await exists(gitDirectory));
+  if (fresh) {
     await mkdir(checkout, { recursive: true });
     await git(options.env, "init", checkout);
     await git(options.env, "-C", checkout, "remote", "add", "origin", options.remote);
@@ -125,7 +135,9 @@ export async function prepareRepositoryCheckout(options: {
   await git(options.env, "-C", checkout, "remote", "set-head", "origin", "--auto");
 
   const branch = await defaultBranchAt(checkout, options.env);
-  if (!(await hasLocalBranch(checkout, branch, options.env))) {
+  if (fresh && options.restoration !== undefined) {
+    await restoreCheckout(checkout, options.restoration, options.env);
+  } else if (!(await hasLocalBranch(checkout, branch, options.env))) {
     await git(
       options.env,
       "-C",
@@ -142,6 +154,24 @@ export async function prepareRepositoryCheckout(options: {
   // left by the previous Job would turn an editable hook into a one-time promise.
   await installGitSafetyHook({ checkout, defaultBranch: branch });
   return { repository: options.repository, checkout, defaultBranch: branch };
+}
+
+async function restoreCheckout(
+  checkout: string,
+  restoration: RepositoryRestoration,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  await git(env, "-C", checkout, "cat-file", "-e", `${restoration.head}^{commit}`);
+  await git(env, "-C", checkout, "switch", "-c", restoration.branch, restoration.head);
+  await git(
+    env,
+    "-C",
+    checkout,
+    "branch",
+    "--set-upstream-to",
+    `origin/${restoration.branch}`,
+    restoration.branch,
+  );
 }
 
 function checkoutCommand(config: string): string {

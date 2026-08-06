@@ -89,6 +89,21 @@ spending; configure `turnTimeoutMs` when a hard wall-clock ceiling is required.
 `librarianTimeoutMs` defaults to five minutes because curation is best-effort work that
 should not hold the next Job indefinitely.
 
+### `workspaceRetention`
+
+```json
+"workspaceRetention": {
+  "inactivityMs": 3600000
+}
+```
+
+After one hour without a Job, reproducible dependency and build caches are removed. A
+complete Thread workspace is reclaimed only when every checkout has no local changes,
+ignored local data, detached HEAD, branch without an upstream, or commits ahead of its
+upstream. Before a clean workspace is removed, its exact branch and commit are recorded in
+wrapper-owned state so a later Job can recreate the same checkout. Any Job in the Thread
+refreshes the inactivity clock.
+
 ### `fileTransfer`
 
 ```json
